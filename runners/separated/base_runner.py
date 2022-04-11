@@ -3,6 +3,7 @@ import os
 import numpy as np
 from itertools import chain
 import torch
+import wandb
 from tensorboardX import SummaryWriter
 from utils.separated_buffer import SeparatedReplayBuffer
 from utils.util import update_linear_schedule
@@ -53,14 +54,18 @@ class Runner(object):
             if not os.path.exists(self.gif_dir):
                 os.makedirs(self.gif_dir)
         else:
-            self.run_dir = config["run_dir"]
-            self.log_dir = str(self.run_dir / 'logs')
-            if not os.path.exists(self.log_dir):
-                os.makedirs(self.log_dir)
-            self.writter = SummaryWriter(self.log_dir)
-            self.save_dir = str(self.run_dir / 'models')
-            if not os.path.exists(self.save_dir):
-                os.makedirs(self.save_dir)
+            if self.all_args.use_wandb:
+                self.save_dir = str(wandb.run.dir)
+                self.run_dir = str(wandb.run.dir)
+            else:
+                self.run_dir = config["run_dir"]
+                self.log_dir = str(self.run_dir / 'logs')
+                if not os.path.exists(self.log_dir):
+                    os.makedirs(self.log_dir)
+                self.writter = SummaryWriter(self.log_dir)
+                self.save_dir = str(self.run_dir / 'models')
+                if not os.path.exists(self.save_dir):
+                    os.makedirs(self.save_dir)
 
         if self.all_args.algorithm_name == "happo":
             from algorithms.happo_trainer import HAPPO as TrainAlgo
@@ -71,9 +76,9 @@ class Runner(object):
         else:
             raise NotImplementedError
 
-        print("share_observation_space: ", self.envs.share_observation_space)
-        print("observation_space: ", self.envs.observation_space)
-        print("action_space: ", self.envs.action_space)
+        # print("share_observation_space: ", self.envs.share_observation_space)
+        # print("observation_space: ", self.envs.observation_space)
+        # print("action_space: ", self.envs.action_space)
 
         self.policy = []
         for agent_id in range(self.num_agents):
@@ -259,10 +264,17 @@ class Runner(object):
         for agent_id in range(self.num_agents):
             for k, v in train_infos[agent_id].items():
                 agent_k = "agent%i/" % agent_id + k
-                self.writter.add_scalars(agent_k, {agent_k: v},
-                                         total_num_steps)
+                if self.all_args.use_wandb:
+                    wandb.log({agent_k: v}, step=total_num_steps)
+                else:
+                    self.writter.add_scalars(agent_k, {agent_k: v},
+                                             total_num_steps)
 
     def log_env(self, env_infos, total_num_steps):
         for k, v in env_infos.items():
             if len(v) > 0:
-                self.writter.add_scalars(k, {k: np.mean(v)}, total_num_steps)
+                if self.all_args.use_wandb:
+                    wandb.log({k: np.mean(v)}, step=total_num_steps)
+                else:
+                    self.writter.add_scalars(k, {k: np.mean(v)},
+                                             total_num_steps)

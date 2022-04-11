@@ -1,5 +1,6 @@
 import time
 import numpy as np
+import wandb
 from functools import reduce
 import torch
 from runners.separated.base_runner import Runner
@@ -81,10 +82,14 @@ class MujocoRunner(Runner):
                     aver_episode_rewards = np.mean(done_episodes_rewards)
                     print("some episodes done, average rewards: ",
                           aver_episode_rewards)
-                    self.writter.add_scalars(
-                        "train_episode_rewards",
-                        {"aver_rewards": aver_episode_rewards},
-                        total_num_steps)
+                    if self.all_args.use_wandb:
+                        wandb.log({"aver_rewards": aver_episode_rewards},
+                                  step=total_num_steps)
+                    else:
+                        self.writter.add_scalars(
+                            "train_episode_rewards",
+                            {"aver_rewards": aver_episode_rewards},
+                            total_num_steps)
 
             # eval
             if episode % self.eval_interval == 0 and self.use_eval:
@@ -178,8 +183,11 @@ class MujocoRunner(Runner):
                 self.buffer[agent_id].rewards)
             for k, v in train_infos[agent_id].items():
                 agent_k = "agent%i/" % agent_id + k
-                self.writter.add_scalars(agent_k, {agent_k: v},
-                                         total_num_steps)
+                if self.all_args.use_wandb:
+                    wandb.log({agent_k: v}, step=total_num_steps)
+                else:
+                    self.writter.add_scalars(agent_k, {agent_k: v},
+                                             total_num_steps)
 
     @torch.no_grad()
     def eval(self, total_num_steps):

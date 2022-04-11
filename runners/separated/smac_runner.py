@@ -2,6 +2,7 @@ import time
 import numpy as np
 from functools import reduce
 import torch
+import wandb
 from runners.separated.base_runner import Runner
 
 
@@ -85,9 +86,14 @@ class SMACRunner(Runner):
                         incre_battles_game) if np.sum(
                             incre_battles_game) > 0 else 0.0
                     print("incre win rate is {}.".format(incre_win_rate))
-                    self.writter.add_scalars(
-                        "incre_win_rate", {"incre_win_rate": incre_win_rate},
-                        total_num_steps)
+                    if self.all_args.use_wandb:
+                        wandb.log({"incre_win_rate": incre_win_rate},
+                                  step=total_num_steps)
+                    else:
+                        self.writter.add_scalars(
+                            "incre_win_rate",
+                            {"incre_win_rate": incre_win_rate},
+                            total_num_steps)
 
                     last_battles_game = battles_game
                     last_battles_won = battles_won
@@ -199,8 +205,11 @@ class SMACRunner(Runner):
                 self.buffer[agent_id].rewards)
             for k, v in train_infos[agent_id].items():
                 agent_k = "agent%i/" % agent_id + k
-                self.writter.add_scalars(agent_k, {agent_k: v},
-                                         total_num_steps)
+                if self.all_args.use_wandb:
+                    wandb.log({agent_k: v}, step=total_num_steps)
+                else:
+                    self.writter.add_scalars(agent_k, {agent_k: v},
+                                             total_num_steps)
 
     @torch.no_grad()
     def eval(self, total_num_steps):
@@ -276,7 +285,11 @@ class SMACRunner(Runner):
                 self.log_env(eval_env_infos, total_num_steps)
                 eval_win_rate = eval_battles_won / eval_episode
                 print("eval win rate is {}.".format(eval_win_rate))
-                self.writter.add_scalars("eval_win_rate",
-                                         {"eval_win_rate": eval_win_rate},
-                                         total_num_steps)
+                if self.all_args.use_wandb:
+                    wandb.log({"eval_win_rate": eval_win_rate},
+                              step=total_num_steps)
+                else:
+                    self.writter.add_scalars("eval_win_rate",
+                                             {"eval_win_rate": eval_win_rate},
+                                             total_num_steps)
                 break

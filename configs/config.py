@@ -155,6 +155,10 @@ def get_config():
     """
     parser = argparse.ArgumentParser(description='onpolicy_algorithm', formatter_class=argparse.RawDescriptionHelpFormatter)
 
+    parser.add_argument("--use_wandb", action='store_true')
+    parser.add_argument("--user_name", type=str, 
+                        default='garrett4wade',help="[for wandb usage], to specify user's name for simply collecting training data.")
+
     # prepare parameters
     parser.add_argument("--algorithm_name", type=str,
                         default=' ', choices=["happo","hatrpo"])
@@ -180,8 +184,7 @@ def get_config():
                         default=1, help="Number of parallel envs for rendering rollouts")
     parser.add_argument("--num_env_steps", type=int, 
                         default=10e6, help='Number of environment steps to train (default: 10e6)')
-    parser.add_argument("--user_name", type=str, 
-                        default='marl',help="[for wandb usage], to specify user's name for simply collecting training data.")
+
     # env parameters
     parser.add_argument("--env_name", type=str, 
                         default='StarCraft2', help="specify the name of environment")
@@ -193,8 +196,7 @@ def get_config():
                         default=200, help="Max length for any episode")
 
     # network parameters
-    parser.add_argument("--share_policy", action='store_false',
-                        default=True, help='Whether agent share the same policy')
+    parser.add_argument("--share_policy", action='store_true')
     parser.add_argument("--use_centralized_V", action='store_false',
                         default=True, help="Whether to use centralized V function")
     parser.add_argument("--stacked_frames", type=int, 
