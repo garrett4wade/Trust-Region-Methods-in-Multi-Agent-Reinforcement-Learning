@@ -2,7 +2,7 @@
 env="football"
 map="academy_3_vs_1_with_keeper"
 algo="happo"
-exp="happo"
+exp="happo_share"
 running_max=20
 kl_threshold=0.06
 echo "env is ${env}, map is ${map}, algo is ${algo}, exp is ${exp}, max seed is ${seed_max}"
