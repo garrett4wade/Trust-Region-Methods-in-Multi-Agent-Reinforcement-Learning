@@ -159,6 +159,8 @@ class Runner(object):
             (self.episode_length, self.n_rollout_threads, action_dim),
             dtype=np.float32)
 
+        distillation_agents = []
+
         for agent_id in torch.randperm(self.num_agents):
             if self.share_policy:
                 trainer = self.trainer
@@ -195,7 +197,7 @@ class Runner(object):
                         available_actions,
                         self.buffer[agent_id].active_masks[:-1].reshape(
                             -1, *self.buffer[agent_id].active_masks.shape[2:]))
-            train_info = trainer.train(agent_id, self.buffer)
+            train_info = trainer.train(agent_id, self.buffer, distillation_agents)
 
             if self.all_args.algorithm_name == "hatrpo":
                 new_actions_logprob, _, _, _, _ = trainer.policy.actor.evaluate_actions(
@@ -211,7 +213,7 @@ class Runner(object):
                         self.buffer[agent_id].active_masks[:-1].reshape(
                             -1, *self.buffer[agent_id].active_masks.shape[2:]))
             else:
-                new_actions_logprob, _, _ = trainer.policy.actor.evaluate_actions(
+                new_actions_logprob, _, new_actor_output = trainer.policy.actor.evaluate_actions(
                         self.buffer[agent_id].obs[:-1].reshape(
                             -1, *self.buffer[agent_id].obs.shape[2:]),
                         self.buffer[agent_id].rnn_states[0:1].reshape(
@@ -223,12 +225,27 @@ class Runner(object):
                         available_actions,
                         self.buffer[agent_id].active_masks[:-1].reshape(
                             -1, *self.buffer[agent_id].active_masks.shape[2:]))
+                if self.all_args.share_policy:
+                    new_value, _ = trainer.policy.critic(self.buffer[agent_id].share_obs[:-1].reshape(
+                                    -1, *self.buffer[agent_id].share_obs.shape[2:]), 
+                                    self.buffer[agent_id].rnn_states_critic[0:1].reshape(
+                                    -1, *self.buffer[agent_id].rnn_states_critic.shape[2:]), 
+                                    self.buffer[agent_id].masks[:-1].reshape(
+                                    -1, *self.buffer[agent_id].masks.shape[2:]),)
+                    distillation_agents.append(agent_id)
+                    new_value = _t2n(new_value).reshape(
+                        self.episode_length, self.n_rollout_threads, 1)
+                    new_actor_output = _t2n(new_actor_output).reshape(
+                        self.episode_length, self.n_rollout_threads, new_actor_output.shape[-1])
+                else:
+                    new_value = None
+                    new_actor_output = None
 
             factor = factor * _t2n(
                 torch.exp(new_actions_logprob - old_actions_logprob).reshape(
                     self.episode_length, self.n_rollout_threads, action_dim))
             train_infos.append(train_info)
-            self.buffer[agent_id].after_update()
+            self.buffer[agent_id].after_update(new_value, new_actor_output)
 
         return train_infos
 

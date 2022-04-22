@@ -91,7 +91,7 @@ class HAPPO():
     def ppo_update(self, samples, update_actor=True):
         share_obs_batch, obs_batch, rnn_states_batch, rnn_states_critic_batch, actions_batch, \
         value_preds_batch, return_batch, masks_batch, active_masks_batch, old_action_log_probs_batch, \
-        adv_targ, available_actions_batch, factor_batch = samples[0]
+        adv_targ, available_actions_batch, factor_batch, _, _ = samples[0]
 
 
 
@@ -132,22 +132,12 @@ class HAPPO():
 
         value_loss = self.cal_value_loss(values, value_preds_batch, return_batch, active_masks_batch)
 
-        assert len(samples[1:]) == self.num_agents - 1
         for ref_sample in samples[1:]:
             if ref_sample is not None:
                 assert self.share_policy
-                ref_share_obs, ref_obs, ref_rnn_states, ref_rnn_states_critic, ref_actions, \
-                    _, _, ref_masks, ref_active_masks, _, \
-                    _, ref_available_actions, _ = ref_sample
-                with torch.no_grad():
-                    ref_values, _, _, ref_actor_output = self.policy.evaluate_actions(ref_share_obs,
-                                                                                      ref_obs, 
-                                                                                      ref_rnn_states, 
-                                                                                      ref_rnn_states_critic, 
-                                                                                      ref_actions, 
-                                                                                      ref_masks, 
-                                                                                      ref_available_actions,
-                                                                                      ref_active_masks)
+                ref_values, ref_actor_output = ref_sample[-2:]
+                ref_actor_output = check(ref_actor_output).to(**self.tpdv)
+                ref_values = check(ref_values).to(**self.tpdv)
                 policy_loss +=  self.distill_coef * ((ref_actor_output - actor_output)**2).mean()
                 value_loss += self.distill_coef * ((ref_values - values)**2).mean()
             else:
@@ -191,7 +181,7 @@ class HAPPO():
         advantages = (advantages - mean_advantages) / (std_advantages + 1e-5)
         return advantages
 
-    def train(self, agent_id, buffers, update_actor=True):
+    def train(self, agent_id, buffers, distillation_agents, update_actor=True):
         """
         Perform a training update using minibatch GD.
         :param buffer: (SharedReplayBuffer) buffer containing training data.
@@ -199,9 +189,9 @@ class HAPPO():
 
         :return train_info: (dict) contains information regarding training update (e.g. loss, grad norms, etc).
         """
+        assert len(buffers) == self.num_agents, (len(buffers), self.num_agents)
         buffer = buffers[agent_id]
-        buffers = buffers[:agent_id] + buffers[agent_id + 1:]
-        assert len(buffers) == self.num_agents - 1, (len(buffers), self.num_agents)
+        buffers = [buffers[da_i] for da_i in distillation_agents]
         advantages = self._generate_adv(buffer)
 
         train_info = {}
@@ -213,6 +203,7 @@ class HAPPO():
         train_info['critic_grad_norm'] = 0
         train_info['ratio'] = 0
 
+        assert self.num_mini_batch == 1, self.num_mini_batch
         for _ in range(self.ppo_epoch):
             if self._use_recurrent_policy:
                 data_generator = buffer.recurrent_generator(advantages, self.num_mini_batch, self.data_chunk_length)
