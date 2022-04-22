@@ -53,7 +53,7 @@ class ACTLayer(nn.Module):
             actions = []
             action_log_probs = []
             for action_out in self.action_outs:
-                action_logit = action_out(x)
+                _, action_logit = action_out(x)
                 action = action_logit.mode() if deterministic else action_logit.sample()
                 action_log_prob = action_logit.log_probs(action)
                 actions.append(action.float())
@@ -66,7 +66,7 @@ class ACTLayer(nn.Module):
             actions = []
             action_log_probs = []
             for action_out in self.action_outs:
-                action_logit = action_out(x)
+                _, action_logit = action_out(x)
                 action = action_logit.mode() if deterministic else action_logit.sample()
                 action_log_prob = action_logit.log_probs(action)
                 actions.append(action)
@@ -76,7 +76,7 @@ class ACTLayer(nn.Module):
             action_log_probs = torch.cat(action_log_probs, -1)
         
         else:
-            action_logits = self.action_out(x, available_actions)
+            _, action_logits = self.action_out(x, available_actions)
             actions = action_logits.mode() if deterministic else action_logits.sample() 
             action_log_probs = action_logits.log_probs(actions)
         
@@ -94,12 +94,12 @@ class ACTLayer(nn.Module):
         if self.mixed_action or self.multi_discrete:
             action_probs = []
             for action_out in self.action_outs:
-                action_logit = action_out(x)
+                _, action_logit = action_out(x)
                 action_prob = action_logit.probs
                 action_probs.append(action_prob)
             action_probs = torch.cat(action_probs, -1)
         else:
-            action_logits = self.action_out(x, available_actions)
+            _, action_logits = self.action_out(x, available_actions)
             action_probs = action_logits.probs
         
         return action_probs
@@ -123,7 +123,7 @@ class ACTLayer(nn.Module):
             action_log_probs = [] 
             dist_entropy = []
             for action_out, act in zip(self.action_outs, action):
-                action_logit = action_out(x)
+                _, action_logit = action_out(x)
                 action_log_probs.append(action_logit.log_probs(act))
                 if active_masks is not None:
                     if len(action_logit.entropy().shape) == len(active_masks.shape):
@@ -141,7 +141,7 @@ class ACTLayer(nn.Module):
             action_log_probs = []
             dist_entropy = []
             for action_out, act in zip(self.action_outs, action):
-                action_logit = action_out(x)
+                _, action_logit = action_out(x)
                 action_log_probs.append(action_logit.log_probs(act))
                 if active_masks is not None:
                     dist_entropy.append((action_logit.entropy()*active_masks.squeeze(-1)).sum()/active_masks.sum())
@@ -152,7 +152,7 @@ class ACTLayer(nn.Module):
             dist_entropy = torch.tensor(dist_entropy).mean()
         
         else:
-            action_logits = self.action_out(x, available_actions)
+            actor_output, action_logits = self.action_out(x, available_actions)
             action_log_probs = action_logits.log_probs(action)
             if active_masks is not None:
                 if self.action_type=="Discrete":
@@ -161,8 +161,10 @@ class ACTLayer(nn.Module):
                     dist_entropy = (action_logits.entropy()*active_masks).sum()/active_masks.sum()
             else:
                 dist_entropy = action_logits.entropy().mean()
+            if isinstance(actor_output, tuple):
+                actor_output = torch.cat(actor_output, -1)
         
-        return action_log_probs, dist_entropy
+        return action_log_probs, dist_entropy, actor_output
 
     def evaluate_actions_trpo(self, x, action, available_actions=None, active_masks=None):
         """
@@ -185,7 +187,7 @@ class ACTLayer(nn.Module):
             std_collector = []
             probs_collector = []
             for action_out, act in zip(self.action_outs, action):
-                action_logit = action_out(x)
+                _, action_logit = action_out(x)
                 mu = action_logit.mean
                 std = action_logit.stddev
                 action_log_probs.append(action_logit.log_probs(act))
@@ -203,7 +205,7 @@ class ACTLayer(nn.Module):
             dist_entropy = torch.tensor(dist_entropy).mean()
         
         else:
-            action_logits = self.action_out(x, available_actions)
+            _, action_logits = self.action_out(x, available_actions)
             action_mu = action_logits.mean
             action_std = action_logits.stddev
             action_log_probs = action_logits.log_probs(action)

@@ -183,7 +183,7 @@ class Runner(object):
                         self.buffer[agent_id].active_masks[:-1].reshape(
                             -1, *self.buffer[agent_id].active_masks.shape[2:]))
             else:
-                old_actions_logprob, _ = trainer.policy.actor.evaluate_actions(
+                old_actions_logprob, _, _ = trainer.policy.actor.evaluate_actions(
                         self.buffer[agent_id].obs[:-1].reshape(
                             -1, *self.buffer[agent_id].obs.shape[2:]),
                         self.buffer[agent_id].rnn_states[0:1].reshape(
@@ -211,7 +211,7 @@ class Runner(object):
                         self.buffer[agent_id].active_masks[:-1].reshape(
                             -1, *self.buffer[agent_id].active_masks.shape[2:]))
             else:
-                new_actions_logprob, _ = trainer.policy.actor.evaluate_actions(
+                new_actions_logprob, _, _ = trainer.policy.actor.evaluate_actions(
                         self.buffer[agent_id].obs[:-1].reshape(
                             -1, *self.buffer[agent_id].obs.shape[2:]),
                         self.buffer[agent_id].rnn_states[0:1].reshape(

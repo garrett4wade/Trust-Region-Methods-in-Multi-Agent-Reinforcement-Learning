@@ -111,7 +111,7 @@ class HAPPO_Policy:
         :return dist_entropy: (torch.Tensor) action distribution entropy for the given inputs.
         """
 
-        action_log_probs, dist_entropy = self.actor.evaluate_actions(obs,
+        action_log_probs, dist_entropy, actor_output = self.actor.evaluate_actions(obs,
                                                                 rnn_states_actor,
                                                                 action,
                                                                 masks,
@@ -119,7 +119,7 @@ class HAPPO_Policy:
                                                                 active_masks)
 
         values, _ = self.critic(cent_obs, rnn_states_critic, masks)
-        return values, action_log_probs, dist_entropy
+        return values, action_log_probs, dist_entropy, actor_output
 
 
     def act(self, obs, rnn_states_actor, masks, available_actions=None, deterministic=False):

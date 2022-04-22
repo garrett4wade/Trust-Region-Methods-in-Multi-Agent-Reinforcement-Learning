@@ -103,7 +103,7 @@ class FootballEnvironment:
         self.__episode_return += reward[:, np.newaxis]
         available_actions = np.ones(
             (obs.shape[0], self.__env.action_space[0].n), dtype=np.uint8)
-        info['episode'] = dict(r=self.__episode_return.sum().item(),
+        info['episode'] = dict(r=self.__episode_return.mean().item(),
                                l=self.__step_count.item())
         info['bad_transition'] = (done
                                   and self.__step_count.item() >= self.__step_limit)

@@ -66,7 +66,7 @@ class Categorical(nn.Module):
         x = self.linear(x)
         if available_actions is not None:
             x[available_actions == 0] = -1e10
-        return FixedCategorical(logits=x)
+        return x, FixedCategorical(logits=x)
 
 
 # class DiagGaussian(nn.Module):
@@ -113,7 +113,7 @@ class DiagGaussian(nn.Module):
     def forward(self, x, available_actions=None):
         action_mean = self.fc_mean(x)
         action_std = torch.sigmoid(self.log_std / self.std_x_coef) * self.std_y_coef
-        return FixedNormal(action_mean, action_std)
+        return (action_mean, action_std), FixedNormal(action_mean, action_std)
 
 class Bernoulli(nn.Module):
     def __init__(self, num_inputs, num_outputs, use_orthogonal=True, gain=0.01):

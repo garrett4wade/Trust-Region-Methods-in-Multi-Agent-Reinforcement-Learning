@@ -155,6 +155,7 @@ def main(args):
     envs = make_train_env(all_args)
     eval_envs = make_eval_env(all_args) if all_args.use_eval else None
     num_agents = map_agent_registry[all_args.map_name][0]
+    all_args.num_agents = num_agents
 
     config = {
         "all_args": all_args,

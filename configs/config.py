@@ -123,7 +123,7 @@ def get_config():
             coefficient of huber loss.  
 
     
-    Run parameters：
+    Run parameters:
         --use_linear_lr_decay
             by default, do not apply linear decay to learning rate. If set, use a linear schedule on the learning rate
         --save_interval <int>
@@ -166,6 +166,7 @@ def get_config():
         help=
         "[for wandb usage], to specify user's name for simply collecting training data."
     )
+    parser.add_argument("--distill_coef", type=float, default=1.0)
 
     # prepare parameters
     parser.add_argument("--algorithm_name",
