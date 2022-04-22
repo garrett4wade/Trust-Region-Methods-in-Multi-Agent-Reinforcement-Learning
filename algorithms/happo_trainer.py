@@ -150,7 +150,6 @@ class HAPPO():
                                                                                       ref_active_masks)
                 policy_loss +=  self.distill_coef * ((ref_actor_output - actor_output)**2).mean()
                 value_loss += self.distill_coef * ((ref_values - values)**2).mean()
-                print('add distillation loss')
             else:
                 assert not self.share_policy
 
