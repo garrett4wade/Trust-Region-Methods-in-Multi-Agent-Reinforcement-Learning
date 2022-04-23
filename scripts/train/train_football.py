@@ -86,6 +86,7 @@ def parse_args(args, parser):
 def main(args):
     parser = get_config()
     all_args = parse_args(args, parser)
+    all_args.num_env_steps = map_agent_registry[all_args.map_name][-1]
     print("all config: ", all_args)
     if all_args.seed_specify:
         all_args.seed = all_args.runing_id

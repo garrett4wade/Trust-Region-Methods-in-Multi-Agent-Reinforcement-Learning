@@ -5,18 +5,20 @@ import numpy as np
 import os
 
 map_agent_registry = {
-    # evn_name: (left, right, game_length)
-    "11_vs_11_competition": (11, 11, 3000),
-    "11_vs_11_easy_stochastic": (11, 11, 3000),
-    "11_vs_11_hard_stochastic": (11, 11, 3000),
-    "11_vs_11_kaggle": (11, 11, 3000),
-    "11_vs_11_stochastic": (11, 11, 3000),
-    "1_vs_1_easy": (1, 1, 500),
-    "5_vs_5": (4, 4, 3000),
-    "academy_3_vs_1_with_keeper": (3, 1, 400),
-    "academy_corner": (11, 11, 400),
-    "academy_counterattack_easy": (11, 11, 400),
-    "academy_counterattack_hard": (11, 11, 400),
+    # evn_name: (left, right, game_length, total env steps)
+    "11_vs_11_competition": (11, 11, 3000, None),
+    "11_vs_11_easy_stochastic": (11, 11, 3000, None),
+    "11_vs_11_hard_stochastic": (11, 11, 3000, None),
+    "11_vs_11_kaggle": (11, 11, 3000, None),
+    "11_vs_11_stochastic": (11, 11, 3000, None),
+    "1_vs_1_easy": (1, 1, 500, None),
+    "5_vs_5": (5, 5, 3000, None),
+    "academy_3_vs_1_with_keeper": (3, 2, 400, int(25e6)),
+    "academy_corner": (11, 11, 400,  int(50e6)),
+    "academy_counterattack_easy": (11, 11, 400, int(25e6)),
+    "academy_counterattack_hard": (11, 11, 400, int(50e6)),
+    "academy_run_pass_and_shoot_with_keeper": (3, 2, 400, int(25e6)),
+    "academy_pass_and_shoot_with_keeper": (3, 2, 400, int(25e6)),
 }
 
 
