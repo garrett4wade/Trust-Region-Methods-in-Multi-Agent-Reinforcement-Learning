@@ -5,6 +5,7 @@ from utils.util import get_gard_norm, huber_loss, mse_loss
 from utils.popart import PopArt
 from algorithms.utils.util import check
 
+
 class HAPPO():
     """
     Trainer class for HAPPO to update policies.
@@ -12,10 +13,8 @@ class HAPPO():
     :param policy: (HAPPO_Policy) policy to update.
     :param device: (torch.device) specifies the device to run on (cpu/gpu).
     """
-    def __init__(self,
-                 args,
-                 policy,
-                 device=torch.device("cpu")):
+
+    def __init__(self, args, policy, device=torch.device("cpu")):
 
         self.share_policy = args.share_policy
         self.distill_coef = args.distill_coef
@@ -30,7 +29,7 @@ class HAPPO():
         self.data_chunk_length = args.data_chunk_length
         self.value_loss_coef = args.value_loss_coef
         self.entropy_coef = args.entropy_coef
-        self.max_grad_norm = args.max_grad_norm       
+        self.max_grad_norm = args.max_grad_norm
         self.huber_delta = args.huber_delta
 
         self._use_recurrent_policy = args.use_recurrent_policy
@@ -42,13 +41,13 @@ class HAPPO():
         self._use_value_active_masks = args.use_value_active_masks
         self._use_policy_active_masks = args.use_policy_active_masks
 
-        
         if self._use_popart:
             self.value_normalizer = PopArt(1, device=self.device)
         else:
             self.value_normalizer = None
 
-    def cal_value_loss(self, values, value_preds_batch, return_batch, active_masks_batch):
+    def cal_value_loss(self, values, value_preds_batch, return_batch,
+                       active_masks_batch):
         """
         Calculate value function loss.
         :param values: (torch.Tensor) value function predictions.
@@ -59,13 +58,16 @@ class HAPPO():
         :return value_loss: (torch.Tensor) value function loss.
         """
         if self._use_popart:
-            value_pred_clipped = value_preds_batch + (values - value_preds_batch).clamp(-self.clip_param,
-                                                                                        self.clip_param)
-            error_clipped = self.value_normalizer(return_batch) - value_pred_clipped
+            value_pred_clipped = value_preds_batch + (
+                values - value_preds_batch).clamp(-self.clip_param,
+                                                  self.clip_param)
+            error_clipped = self.value_normalizer(
+                return_batch) - value_pred_clipped
             error_original = self.value_normalizer(return_batch) - values
         else:
-            value_pred_clipped = value_preds_batch + (values - value_preds_batch).clamp(-self.clip_param,
-                                                                                        self.clip_param)
+            value_pred_clipped = value_preds_batch + (
+                values - value_preds_batch).clamp(-self.clip_param,
+                                                  self.clip_param)
             error_clipped = return_batch - value_pred_clipped
             error_original = return_batch - values
 
@@ -82,7 +84,8 @@ class HAPPO():
             value_loss = value_loss_original
 
         if self._use_value_active_masks:
-            value_loss = (value_loss * active_masks_batch).sum() / active_masks_batch.sum()
+            value_loss = (value_loss *
+                          active_masks_batch).sum() / active_masks_batch.sum()
         else:
             value_loss = value_loss.mean()
 
@@ -93,44 +96,42 @@ class HAPPO():
         value_preds_batch, return_batch, masks_batch, active_masks_batch, old_action_log_probs_batch, \
         adv_targ, available_actions_batch, factor_batch, _, _ = samples[0]
 
-
-
-        old_action_log_probs_batch = check(old_action_log_probs_batch).to(**self.tpdv)
+        old_action_log_probs_batch = check(old_action_log_probs_batch).to(
+            **self.tpdv)
         adv_targ = check(adv_targ).to(**self.tpdv)
-
 
         value_preds_batch = check(value_preds_batch).to(**self.tpdv)
         return_batch = check(return_batch).to(**self.tpdv)
-
 
         active_masks_batch = check(active_masks_batch).to(**self.tpdv)
 
         factor_batch = check(factor_batch).to(**self.tpdv)
         # Reshape to do in a single forward pass for all steps
-        values, action_log_probs, dist_entropy, actor_output = self.policy.evaluate_actions(share_obs_batch,
-                                                                              obs_batch, 
-                                                                              rnn_states_batch, 
-                                                                              rnn_states_critic_batch, 
-                                                                              actions_batch, 
-                                                                              masks_batch, 
-                                                                              available_actions_batch,
-                                                                              active_masks_batch)
+        values, action_log_probs, dist_entropy, actor_output = self.policy.evaluate_actions(
+            share_obs_batch, obs_batch, rnn_states_batch,
+            rnn_states_critic_batch, actions_batch, masks_batch,
+            available_actions_batch, active_masks_batch)
         # actor update
         imp_weights = torch.exp(action_log_probs - old_action_log_probs_batch)
 
         surr1 = imp_weights * adv_targ
-        surr2 = torch.clamp(imp_weights, 1.0 - self.clip_param, 1.0 + self.clip_param) * adv_targ
+        surr2 = torch.clamp(imp_weights, 1.0 - self.clip_param,
+                            1.0 + self.clip_param) * adv_targ
 
         if self._use_policy_active_masks:
-            policy_action_loss = (-torch.sum(factor_batch * torch.min(surr1, surr2),
-                                             dim=-1,
-                                             keepdim=True) * active_masks_batch).sum() / active_masks_batch.sum()
+            policy_action_loss = (-torch.sum(
+                factor_batch * torch.min(surr1, surr2), dim=-1, keepdim=True) *
+                                  active_masks_batch
+                                  ).sum() / active_masks_batch.sum()
         else:
-            policy_action_loss = -torch.sum(factor_batch * torch.min(surr1, surr2), dim=-1, keepdim=True).mean()
+            policy_action_loss = -torch.sum(
+                factor_batch * torch.min(surr1, surr2), dim=-1,
+                keepdim=True).mean()
 
         policy_loss = policy_action_loss - dist_entropy * self.entropy_coef
 
-        value_loss = self.cal_value_loss(values, value_preds_batch, return_batch, active_masks_batch)
+        value_loss = self.cal_value_loss(values, value_preds_batch,
+                                         return_batch, active_masks_batch)
 
         for ref_sample in samples[1:]:
             if ref_sample is not None:
@@ -138,8 +139,10 @@ class HAPPO():
                 ref_values, ref_actor_output = ref_sample[-2:]
                 ref_actor_output = check(ref_actor_output).to(**self.tpdv)
                 ref_values = check(ref_values).to(**self.tpdv)
-                policy_loss +=  self.distill_coef * ((ref_actor_output - actor_output)**2).mean()
-                value_loss += self.distill_coef * ((ref_values - values)**2).mean()
+                policy_loss += self.distill_coef * (
+                    (ref_actor_output - actor_output)**2).mean()
+                value_loss += self.distill_coef * (
+                    (ref_values - values)**2).mean()
             else:
                 assert not self.share_policy
 
@@ -149,7 +152,8 @@ class HAPPO():
             policy_loss.backward()
 
         if self._use_max_grad_norm:
-            actor_grad_norm = nn.utils.clip_grad_norm_(self.policy.actor.parameters(), self.max_grad_norm)
+            actor_grad_norm = nn.utils.clip_grad_norm_(
+                self.policy.actor.parameters(), self.max_grad_norm)
         else:
             actor_grad_norm = get_gard_norm(self.policy.actor.parameters())
 
@@ -160,7 +164,8 @@ class HAPPO():
         (value_loss * self.value_loss_coef).backward()
 
         if self._use_max_grad_norm:
-            critic_grad_norm = nn.utils.clip_grad_norm_(self.policy.critic.parameters(), self.max_grad_norm)
+            critic_grad_norm = nn.utils.clip_grad_norm_(
+                self.policy.critic.parameters(), self.max_grad_norm)
         else:
             critic_grad_norm = get_gard_norm(self.policy.critic.parameters())
 
@@ -170,7 +175,9 @@ class HAPPO():
 
     def _generate_adv(self, buffer):
         if self._use_popart:
-            advantages = buffer.returns[:-1] - self.value_normalizer.denormalize(buffer.value_preds[:-1])
+            advantages = buffer.returns[:
+                                        -1] - self.value_normalizer.denormalize(
+                                            buffer.value_preds[:-1])
         else:
             advantages = buffer.returns[:-1] - buffer.value_preds[:-1]
 
@@ -206,27 +213,36 @@ class HAPPO():
         assert self.num_mini_batch == 1, self.num_mini_batch
         for _ in range(self.ppo_epoch):
             if self._use_recurrent_policy:
-                data_generator = buffer.recurrent_generator(advantages, self.num_mini_batch, self.data_chunk_length)
+                data_generator = buffer.recurrent_generator(
+                    advantages, self.num_mini_batch, self.data_chunk_length)
             elif self._use_naive_recurrent:
-                data_generator = buffer.naive_recurrent_generator(advantages, self.num_mini_batch)
+                data_generator = buffer.naive_recurrent_generator(
+                    advantages, self.num_mini_batch)
             else:
-                data_generator = buffer.feed_forward_generator(advantages, self.num_mini_batch)
+                data_generator = buffer.feed_forward_generator(
+                    advantages, self.num_mini_batch)
 
-            reference_data_generators = [[None for _ in range(self.num_mini_batch)] for _ in range(len(buffers))]
+            reference_data_generators = [[
+                None for _ in range(self.num_mini_batch)
+            ] for _ in range(len(buffers))]
             if self.share_policy:
                 reference_data_generators = []
                 for buf in buffers:
                     adv = self._generate_adv(buf)
                     if self._use_recurrent_policy:
-                        dg = buf.recurrent_generator(adv, self.num_mini_batch, self.data_chunk_length)
+                        dg = buf.recurrent_generator(adv, self.num_mini_batch,
+                                                     self.data_chunk_length)
                     elif self._use_naive_recurrent:
-                        dg = buf.naive_recurrent_generator(adv, self.num_mini_batch)
+                        dg = buf.naive_recurrent_generator(
+                            adv, self.num_mini_batch)
                     else:
-                        dg = buf.feed_forward_generator(adv, self.num_mini_batch)
+                        dg = buf.feed_forward_generator(
+                            adv, self.num_mini_batch)
                     reference_data_generators.append(dg)
 
             for samples in zip(data_generator, *reference_data_generators):
-                value_loss, critic_grad_norm, policy_loss, dist_entropy, actor_grad_norm, imp_weights = self.ppo_update(samples, update_actor=update_actor)
+                value_loss, critic_grad_norm, policy_loss, dist_entropy, actor_grad_norm, imp_weights = self.ppo_update(
+                    samples, update_actor=update_actor)
 
                 train_info['value_loss'] += value_loss.item()
                 train_info['policy_loss'] += policy_loss.item()
@@ -239,7 +255,7 @@ class HAPPO():
 
         for k in train_info.keys():
             train_info[k] /= num_updates
- 
+
         return train_info
 
     def prep_training(self):

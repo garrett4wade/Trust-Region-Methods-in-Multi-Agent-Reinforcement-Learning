@@ -91,13 +91,12 @@ class Runner(object):
                 self.policy.append(po)
         else:
             share_observation_space = self.envs.share_observation_space[
-                    0] if self.use_centralized_V else self.envs.observation_space[
-                        0]
+                0] if self.use_centralized_V else self.envs.observation_space[0]
             self.policy = Policy(self.all_args,
-                                self.envs.observation_space[0],
-                                share_observation_space,
-                                self.envs.action_space[0],
-                                device=self.device)
+                                 self.envs.observation_space[0],
+                                 share_observation_space,
+                                 self.envs.action_space[0],
+                                 device=self.device)
 
         if self.model_dir is not None:
             self.restore()
@@ -113,16 +112,18 @@ class Runner(object):
                                        share_observation_space,
                                        self.envs.action_space[agent_id])
             self.buffer.append(bu)
-        
+
         if self.share_policy:
-            self.trainer = TrainAlgo(self.all_args, self.policy, device=self.device)
+            self.trainer = TrainAlgo(self.all_args,
+                                     self.policy,
+                                     device=self.device)
         else:
             self.trainer = []
             for agent_id in range(self.num_agents):
                 # algorithm
                 tr = TrainAlgo(self.all_args,
-                            self.policy[agent_id],
-                            device=self.device)
+                               self.policy[agent_id],
+                               device=self.device)
                 self.trainer.append(tr)
 
     def run(self):
@@ -140,15 +141,16 @@ class Runner(object):
     @torch.no_grad()
     def compute(self):
         for agent_id in range(self.num_agents):
-            trainer = self.trainer[agent_id] if not self.share_policy else self.trainer
+            trainer = self.trainer[
+                agent_id] if not self.share_policy else self.trainer
             trainer.prep_rollout()
             next_value = trainer.policy.get_values(
                 self.buffer[agent_id].share_obs[-1],
                 self.buffer[agent_id].rnn_states_critic[-1],
                 self.buffer[agent_id].masks[-1])
             next_value = _t2n(next_value)
-            self.buffer[agent_id].compute_returns(
-                next_value, trainer.value_normalizer)
+            self.buffer[agent_id].compute_returns(next_value,
+                                                  trainer.value_normalizer)
 
     def train(self):
         train_infos = []
@@ -173,70 +175,76 @@ class Runner(object):
 
             if self.all_args.algorithm_name == "hatrpo":
                 old_actions_logprob, _, _, _, _ = trainer.policy.actor.evaluate_actions(
-                        self.buffer[agent_id].obs[:-1].reshape(
-                            -1, *self.buffer[agent_id].obs.shape[2:]),
-                        self.buffer[agent_id].rnn_states[0:1].reshape(
-                            -1, *self.buffer[agent_id].rnn_states.shape[2:]),
-                        self.buffer[agent_id].actions.reshape(
-                            -1, *self.buffer[agent_id].actions.shape[2:]),
-                        self.buffer[agent_id].masks[:-1].reshape(
-                            -1, *self.buffer[agent_id].masks.shape[2:]),
-                        available_actions,
-                        self.buffer[agent_id].active_masks[:-1].reshape(
-                            -1, *self.buffer[agent_id].active_masks.shape[2:]))
+                    self.buffer[agent_id].obs[:-1].reshape(
+                        -1, *self.buffer[agent_id].obs.shape[2:]),
+                    self.buffer[agent_id].rnn_states[0:1].reshape(
+                        -1, *self.buffer[agent_id].rnn_states.shape[2:]),
+                    self.buffer[agent_id].actions.reshape(
+                        -1, *self.buffer[agent_id].actions.shape[2:]),
+                    self.buffer[agent_id].masks[:-1].reshape(
+                        -1, *self.buffer[agent_id].masks.shape[2:]),
+                    available_actions,
+                    self.buffer[agent_id].active_masks[:-1].reshape(
+                        -1, *self.buffer[agent_id].active_masks.shape[2:]))
             else:
                 old_actions_logprob, _, _ = trainer.policy.actor.evaluate_actions(
-                        self.buffer[agent_id].obs[:-1].reshape(
-                            -1, *self.buffer[agent_id].obs.shape[2:]),
-                        self.buffer[agent_id].rnn_states[0:1].reshape(
-                            -1, *self.buffer[agent_id].rnn_states.shape[2:]),
-                        self.buffer[agent_id].actions.reshape(
-                            -1, *self.buffer[agent_id].actions.shape[2:]),
-                        self.buffer[agent_id].masks[:-1].reshape(
-                            -1, *self.buffer[agent_id].masks.shape[2:]),
-                        available_actions,
-                        self.buffer[agent_id].active_masks[:-1].reshape(
-                            -1, *self.buffer[agent_id].active_masks.shape[2:]))
-            train_info = trainer.train(agent_id, self.buffer, distillation_agents)
+                    self.buffer[agent_id].obs[:-1].reshape(
+                        -1, *self.buffer[agent_id].obs.shape[2:]),
+                    self.buffer[agent_id].rnn_states[0:1].reshape(
+                        -1, *self.buffer[agent_id].rnn_states.shape[2:]),
+                    self.buffer[agent_id].actions.reshape(
+                        -1, *self.buffer[agent_id].actions.shape[2:]),
+                    self.buffer[agent_id].masks[:-1].reshape(
+                        -1, *self.buffer[agent_id].masks.shape[2:]),
+                    available_actions,
+                    self.buffer[agent_id].active_masks[:-1].reshape(
+                        -1, *self.buffer[agent_id].active_masks.shape[2:]))
+            train_info = trainer.train(agent_id, self.buffer,
+                                       distillation_agents)
 
             if self.all_args.algorithm_name == "hatrpo":
                 new_actions_logprob, _, _, _, _ = trainer.policy.actor.evaluate_actions(
-                        self.buffer[agent_id].obs[:-1].reshape(
-                            -1, *self.buffer[agent_id].obs.shape[2:]),
-                        self.buffer[agent_id].rnn_states[0:1].reshape(
-                            -1, *self.buffer[agent_id].rnn_states.shape[2:]),
-                        self.buffer[agent_id].actions.reshape(
-                            -1, *self.buffer[agent_id].actions.shape[2:]),
-                        self.buffer[agent_id].masks[:-1].reshape(
-                            -1, *self.buffer[agent_id].masks.shape[2:]),
-                        available_actions,
-                        self.buffer[agent_id].active_masks[:-1].reshape(
-                            -1, *self.buffer[agent_id].active_masks.shape[2:]))
+                    self.buffer[agent_id].obs[:-1].reshape(
+                        -1, *self.buffer[agent_id].obs.shape[2:]),
+                    self.buffer[agent_id].rnn_states[0:1].reshape(
+                        -1, *self.buffer[agent_id].rnn_states.shape[2:]),
+                    self.buffer[agent_id].actions.reshape(
+                        -1, *self.buffer[agent_id].actions.shape[2:]),
+                    self.buffer[agent_id].masks[:-1].reshape(
+                        -1, *self.buffer[agent_id].masks.shape[2:]),
+                    available_actions,
+                    self.buffer[agent_id].active_masks[:-1].reshape(
+                        -1, *self.buffer[agent_id].active_masks.shape[2:]))
             else:
                 new_actions_logprob, _, new_actor_output = trainer.policy.actor.evaluate_actions(
-                        self.buffer[agent_id].obs[:-1].reshape(
-                            -1, *self.buffer[agent_id].obs.shape[2:]),
-                        self.buffer[agent_id].rnn_states[0:1].reshape(
-                            -1, *self.buffer[agent_id].rnn_states.shape[2:]),
-                        self.buffer[agent_id].actions.reshape(
-                            -1, *self.buffer[agent_id].actions.shape[2:]),
+                    self.buffer[agent_id].obs[:-1].reshape(
+                        -1, *self.buffer[agent_id].obs.shape[2:]),
+                    self.buffer[agent_id].rnn_states[0:1].reshape(
+                        -1, *self.buffer[agent_id].rnn_states.shape[2:]),
+                    self.buffer[agent_id].actions.reshape(
+                        -1, *self.buffer[agent_id].actions.shape[2:]),
+                    self.buffer[agent_id].masks[:-1].reshape(
+                        -1, *self.buffer[agent_id].masks.shape[2:]),
+                    available_actions,
+                    self.buffer[agent_id].active_masks[:-1].reshape(
+                        -1, *self.buffer[agent_id].active_masks.shape[2:]))
+                if self.all_args.share_policy:
+                    new_value, _ = trainer.policy.critic(
+                        self.buffer[agent_id].share_obs[:-1].reshape(
+                            -1, *self.buffer[agent_id].share_obs.shape[2:]),
+                        self.buffer[agent_id].rnn_states_critic[0:1].reshape(
+                            -1,
+                            *self.buffer[agent_id].rnn_states_critic.shape[2:]
+                        ),
                         self.buffer[agent_id].masks[:-1].reshape(
                             -1, *self.buffer[agent_id].masks.shape[2:]),
-                        available_actions,
-                        self.buffer[agent_id].active_masks[:-1].reshape(
-                            -1, *self.buffer[agent_id].active_masks.shape[2:]))
-                if self.all_args.share_policy:
-                    new_value, _ = trainer.policy.critic(self.buffer[agent_id].share_obs[:-1].reshape(
-                                    -1, *self.buffer[agent_id].share_obs.shape[2:]), 
-                                    self.buffer[agent_id].rnn_states_critic[0:1].reshape(
-                                    -1, *self.buffer[agent_id].rnn_states_critic.shape[2:]), 
-                                    self.buffer[agent_id].masks[:-1].reshape(
-                                    -1, *self.buffer[agent_id].masks.shape[2:]),)
+                    )
                     distillation_agents.append(agent_id)
                     new_value = _t2n(new_value).reshape(
                         self.episode_length, self.n_rollout_threads, 1)
                     new_actor_output = _t2n(new_actor_output).reshape(
-                        self.episode_length, self.n_rollout_threads, new_actor_output.shape[-1])
+                        self.episode_length, self.n_rollout_threads,
+                        new_actor_output.shape[-1])
                 else:
                     new_value = None
                     new_actor_output = None
@@ -251,12 +259,10 @@ class Runner(object):
 
     def save(self):
         if self.share_policy:
-            torch.save(
-                    self.policy.actor.state_dict(),
-                    str(self.save_dir) + "/actor.pt")
-            torch.save(
-                self.policy.critic.state_dict(),
-                str(self.save_dir) + "/critic.pt")
+            torch.save(self.policy.actor.state_dict(),
+                       str(self.save_dir) + "/actor.pt")
+            torch.save(self.policy.critic.state_dict(),
+                       str(self.save_dir) + "/critic.pt")
         else:
             for agent_id in range(self.num_agents):
                 policy_actor = self.trainer[agent_id].policy.actor
@@ -272,9 +278,11 @@ class Runner(object):
 
     def restore(self):
         if self.share_policy:
-            actor_state_dict = torch.load(os.path.join(str(self.model_dir), "actor.pt"))
+            actor_state_dict = torch.load(
+                os.path.join(str(self.model_dir), "actor.pt"))
             self.policy.actor.load_state_dict(actor_state_dict)
-            critic_state_dict = torch.load(os.path.joint(str(self.model_dir), "critic.pt"))
+            critic_state_dict = torch.load(
+                os.path.joint(str(self.model_dir), "critic.pt"))
             self.policy.critic.load_state_dict(critic_state_dict)
         else:
             for agent_id in range(self.num_agents):

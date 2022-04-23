@@ -3,6 +3,7 @@ import sys
 import os
 
 import wandb
+
 sys.path.append("../")
 import socket
 import setproctitle
@@ -178,8 +179,8 @@ def main(args):
     if all_args.use_wandb:
         run.close()
     else:
-        runner.writter.export_scalars_to_json(str(runner.log_dir +
-                                                '/summary.json'))
+        runner.writter.export_scalars_to_json(
+            str(runner.log_dir + '/summary.json'))
         runner.writter.close()
 
 

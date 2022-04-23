@@ -113,7 +113,8 @@ class FootballRunner(Runner):
         rnn_state_collector = []
         rnn_state_critic_collector = []
         for agent_id in range(self.num_agents):
-            trainer = self.trainer if self.share_policy else self.trainer[agent_id]
+            trainer = self.trainer if self.share_policy else self.trainer[
+                agent_id]
             trainer.prep_rollout()
             value, action, action_log_prob, rnn_state, rnn_state_critic \
                 = trainer.policy.get_actions(self.buffer[agent_id].share_obs[step],
@@ -212,7 +213,8 @@ class FootballRunner(Runner):
             eval_actions_collector = []
             eval_rnn_states_collector = []
             for agent_id in range(self.num_agents):
-                trainer = self.trainer if self.share_policy else self.trainer[agent_id]
+                trainer = self.trainer if self.share_policy else self.trainer[
+                    agent_id]
                 trainer.prep_rollout()
                 eval_actions, temp_rnn_state = \
                     trainer.policy.act(eval_obs[:,agent_id],
