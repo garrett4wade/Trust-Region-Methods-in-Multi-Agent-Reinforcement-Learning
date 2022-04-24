@@ -4,12 +4,6 @@ from collections import defaultdict
 from utils.util import check, get_shape_from_obs_space, get_shape_from_act_space
 
 
-def _cast(x, num_chunks):
-    x = x.reshape(num_chunks, x.shape[0] // num_chunks, *x.shape[1:])
-    x = x.transpose(1, 0)
-    return x.flatten(start_dim=1, end_dim=2)
-
-
 class SharedReplayBuffer(object):
 
     def __init__(self, args, num_agents, obs_space, share_obs_space,
@@ -156,7 +150,9 @@ class SharedReplayBuffer(object):
             if isinstance(value_normalizers, list):
                 value_preds = []
                 for agent_id, value_normalizer in enumerate(value_normalizers):
-                    value_preds.append(value_normalizer.denormalize(self.value_preds[:, :, agent_id]))
+                    value_preds.append(
+                        value_normalizer.denormalize(
+                            self.value_preds[:, :, agent_id]))
                 value_preds = torch.stack(value_preds, -2)
             else:
                 value_preds = value_normalizers.denormalize(self.value_preds)
@@ -199,8 +195,8 @@ class SharedReplayBuffer(object):
         agent_idx,
         advantages,
         num_mini_batch,
-        value_after_update=None,
-        actor_output_after_update=None,
+        values_after_update=None,
+        actor_outputs_after_update=None,
     ):
         mini_batch_size = None
         episode_length, n_rollout_threads = self.rewards.shape[0:2]
@@ -240,14 +236,19 @@ class SharedReplayBuffer(object):
         if self.factor is not None:
             # factor = self.factor.reshape(-1,1)
             factor = self.factor[:, :, agent_idx].flatten(end_dim=1)
-        if value_after_update is not None:
-            new_value = value_after_update.flatten(end_dim=1)
+        if values_after_update is not None:
+            new_values = []
+            for value_after_update in values_after_update:
+                new_values.append(value_after_update.flatten(end_dim=1))
         else:
-            new_value = None
-        if actor_output_after_update is not None:
-            new_actor_output = actor_output_after_update.flatten(end_dim=1)
+            new_values = None
+        if actor_outputs_after_update is not None:
+            new_actor_outputs = []
+            for actor_output_after_update in actor_outputs_after_update:
+                new_actor_outputs.append(
+                    actor_output_after_update.flatten(end_dim=1))
         else:
-            new_actor_output = None
+            new_actor_outputs = None
         advantages = advantages.flatten(end_dim=1)
         assert advantages.shape[-1] == 1 and len(
             advantages.shape) == 2, advatanges.shape
@@ -272,12 +273,17 @@ class SharedReplayBuffer(object):
                 adv_targ = None
             else:
                 adv_targ = advantages[indices]
-            if new_value is not None:
-                new_value_batch = new_value[indices]
+            if new_values is not None:
+                new_value_batch = [
+                    new_value[indices] for new_value in new_values
+                ]
             else:
                 new_value_batch = None
-            if new_actor_output is not None:
-                new_actor_output_batch = new_actor_output[indices]
+            if new_actor_outputs is not None:
+                new_actor_output_batch = [
+                    new_actor_output[indices]
+                    for new_actor_output in new_actor_outputs
+                ]
             else:
                 new_actor_output_batch = None
 
@@ -302,12 +308,18 @@ class SharedReplayBuffer(object):
                             advantages,
                             num_mini_batch,
                             data_chunk_length,
-                            value_after_update=None,
-                            actor_output_after_update=None):
+                            values_after_update=None,
+                            actor_outputs_after_update=None):
         episode_length, n_rollout_threads = self.rewards.shape[0:2]
+        num_chunks = episode_length // data_chunk_length
         batch_size = n_rollout_threads * episode_length
         data_chunks = batch_size // data_chunk_length  # [C=r*T/L]
         mini_batch_size = data_chunks // num_mini_batch
+
+        def _cast(x):
+            x = x.reshape(num_chunks, x.shape[0] // num_chunks, *x.shape[1:])
+            x = x.transpose(1, 0)
+            return x.flatten(start_dim=1, end_dim=2)
 
         assert episode_length * n_rollout_threads >= data_chunk_length, (
             "PPO requires the number of processes ({}) * episode length ({}) "
@@ -334,10 +346,16 @@ class SharedReplayBuffer(object):
         active_masks = _cast(self.active_masks[:-1, :, agent_idx])
         if self.factor is not None:
             factor = _cast(self.factor[:, :, agent_idx])
-        if value_after_update is not None:
-            new_value = _cast(value_after_update)
-        if actor_output_after_update is not None:
-            new_actor_output = _cast(actor_output_after_update)
+        if values_after_update is not None:
+            new_values = [
+                _cast(value_after_update)
+                for value_after_update in values_after_update
+            ]
+        if actor_outputs_after_update is not None:
+            new_actor_outputs = [
+                _cast(actor_output_after_update)
+                for actor_output_after_update in actor_outputs_after_update
+            ]
         # rnn_states = _cast(self.rnn_states[:-1, :, agent_idx])
         # rnn_states_critic = _cast(self.rnn_states_critic[:-1, :, agent_idx])
         rnn_states = _cast(self.rnn_states[:-1, :, agent_idx])
@@ -357,10 +375,15 @@ class SharedReplayBuffer(object):
                 available_actions_batch = available_actions[:, indices]
             if self.factor is not None:
                 factor_batch = factor[:, indices]
-            if value_after_update is not None:
-                new_value_batch = new_value[:, indices]
-            if actor_output_after_update is not None:
-                new_actor_output_batch = new_actor_output[:, indices]
+            if values_after_update is not None:
+                new_value_batch = [
+                    new_value[:, indices] for new_value in new_values
+                ]
+            if actor_outputs_after_update is not None:
+                new_actor_output_batch = [
+                    new_actor_output[:, indices]
+                    for new_actor_output in new_actor_outputs
+                ]
             value_preds_batch = value_preds[:, indices]
             return_batch = returns[:, indices]
             masks_batch = masks[:, indices]
@@ -369,7 +392,7 @@ class SharedReplayBuffer(object):
             adv_targ = advantages[:, indices]
 
             # States is just a (N, -1) from_numpy
-            rnn_states_batch = rnn_states_batch[0, indices]
+            rnn_states_batch = rnn_states[0, indices]
             rnn_states_critic_batch = rnn_states_critic[0, indices]
 
             # Flatten the (L, N, ...) from_numpys to (L * N, ...)
@@ -383,13 +406,16 @@ class SharedReplayBuffer(object):
                 available_actions_batch = None
             if self.factor is not None:
                 factor_batch = factor_batch.flatten(end_dim=1)
-            if value_after_update is not None:
-                new_value_batch = new_value_batch.flatten(end_dim=1)
+            if values_after_update is not None:
+                new_value_batch = [
+                    x.flatten(end_dim=1) for x in new_value_batch
+                ]
             else:
                 new_value_batch = None
-            if actor_output_after_update is not None:
-                new_actor_output_batch = new_actor_output_batch.flatten(
-                    end_dim=1)
+            if actor_outputs_after_update is not None:
+                new_actor_output_batch = [
+                    x.flatten(end_dim=1) for x in new_actor_output_batch
+                ]
             else:
                 new_actor_output_batch = None
             value_preds_batch = value_preds_batch.flatten(end_dim=1)

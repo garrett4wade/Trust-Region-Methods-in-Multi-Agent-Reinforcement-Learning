@@ -156,7 +156,9 @@ class Runner(object):
                 assert next_value.shape == (self.n_rollout_threads, 1)
                 nex_values.append(next_value)
             next_value = torch.stack(nex_values, dim=1)
-            self.buffer.compute_returns(next_value, [trainer.value_normalizer for trainer in self.trainer])
+            self.buffer.compute_returns(
+                next_value,
+                [trainer.value_normalizer for trainer in self.trainer])
         else:
             next_value = self.trainer.policy.get_values(
                 self.buffer.share_obs[-1].flatten(end_dim=1),
@@ -164,15 +166,16 @@ class Runner(object):
                 self.buffer.masks[-1].flatten(end_dim=1))
             next_value = next_value.view(self.n_rollout_threads,
                                          self.num_agents, 1)
-            self.buffer.compute_returns(next_value, self.trainer.value_normalizer)
+            self.buffer.compute_returns(next_value,
+                                        self.trainer.value_normalizer)
 
     def train(self):
         train_infos = []
         # random update order
 
         log_factor = torch.zeros_like(self.buffer.factor[:, :, 0])
-        distill_value_targets = None
-        distill_actor_output_targets = None
+        distill_value_targets = []
+        distill_actor_output_targets = []
 
         for agent_id in torch.randperm(self.num_agents):
             if self.share_policy:
@@ -249,17 +252,8 @@ class Runner(object):
                         new_actor_output = new_actor_output.view(
                             self.episode_length, self.n_rollout_threads,
                             new_actor_output.shape[-1])
-                        if distill_value_targets is None:
-                            distill_value_targets = new_value
-                        else:
-                            distill_value_targets = torch.cat(
-                                [distill_value_targets, new_value], -1)
-                        if distill_actor_output_targets is None:
-                            distill_actor_output_targets = new_actor_output
-                        else:
-                            distill_actor_output_targets = torch.cat([
-                                distill_actor_output_targets, new_actor_output
-                            ], -1)
+                        distill_value_targets.append(new_value)
+                        distill_actor_output_targets.append(new_actor_output)
                     else:
                         new_value = None
                         new_actor_output = None

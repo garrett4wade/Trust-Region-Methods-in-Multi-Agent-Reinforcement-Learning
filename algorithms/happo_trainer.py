@@ -93,8 +93,14 @@ class HAPPO():
 
     def ppo_update(self, sample, update_actor=True):
         for x in sample:
-            if x is not None:
-                assert isinstance(x, torch.Tensor) and (x.device == torch.device('cuda:0'))
+            if x is not None and not isinstance(x, list):
+                assert isinstance(
+                    x, torch.Tensor) and (x.device == torch.device('cuda:0'))
+            elif isinstance(x, list) and len(x) > 0:
+                for y in x:
+                    assert isinstance(
+                        y, torch.Tensor) and (y.device
+                                              == torch.device('cuda:0'))
         (share_obs_batch, obs_batch, rnn_states_batch, rnn_states_critic_batch,
          actions_batch, value_preds_batch, return_batch, masks_batch,
          active_masks_batch, old_action_log_probs_batch, adv_targ,
@@ -128,21 +134,14 @@ class HAPPO():
         value_loss = self.cal_value_loss(values, value_preds_batch,
                                          return_batch, active_masks_batch)
 
-        if distill_value_targets is not None:
+        for d_vt in distill_value_targets:
             assert self.share_policy
-            distill_value_targets = torch.split(distill_value_targets,
-                                                1,
-                                                dim=-1)
-            for d_vt in distill_actor_output_targets:
-                value_loss += self.distill_coef * ((d_vt - values)**2).mean()
+            value_loss += self.distill_coef * ((d_vt - values)**2).mean()
 
-        if distill_actor_output_targets is not None:
+        for d_at in distill_actor_output_targets:
             assert self.share_policy
-            distill_actor_output_targets = torch.split(
-                distill_actor_output_targets, actor_output.shape[-1], dim=-1)
-            for d_at in distill_actor_output_targets:
-                policy_loss += self.distill_coef * (
-                    (d_at - actor_output)**2).mean()
+            policy_loss += self.distill_coef * (
+                (d_at - actor_output)**2).mean()
 
         self.policy.actor_optimizer.zero_grad()
 
@@ -219,16 +218,16 @@ class HAPPO():
                     advantages,
                     self.num_mini_batch,
                     self.data_chunk_length,
-                    value_after_update=distill_value_targets,
-                    actor_output_after_update=distill_actor_output_targets,
+                    values_after_update=distill_value_targets,
+                    actor_outputs_after_update=distill_actor_output_targets,
                 )
             else:
                 data_generator = buffer.feed_forward_generator(
                     agent_id,
                     advantages,
                     self.num_mini_batch,
-                    value_after_update=distill_value_targets,
-                    actor_output_after_update=distill_actor_output_targets,
+                    values_after_update=distill_value_targets,
+                    actor_outputs_after_update=distill_actor_output_targets,
                 )
 
             for sample in data_generator:
