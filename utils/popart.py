@@ -84,6 +84,6 @@ class PopArt(nn.Module):
         out = input_vector * torch.sqrt(var)[(None, ) * self.norm_axes] + mean[
             (None, ) * self.norm_axes]
 
-        out = out.cpu().numpy()
+        # out = out.cpu().numpy()
 
         return out

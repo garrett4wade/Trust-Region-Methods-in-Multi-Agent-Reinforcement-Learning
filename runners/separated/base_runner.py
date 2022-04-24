@@ -5,7 +5,8 @@ from itertools import chain
 import torch
 import wandb
 from tensorboardX import SummaryWriter
-from utils.separated_buffer import SeparatedReplayBuffer
+# from utils.separated_buffer import SeparatedReplayBuffer
+from utils.shared_buffer import SharedReplayBuffer
 from utils.util import update_linear_schedule
 
 
@@ -101,17 +102,20 @@ class Runner(object):
         if self.model_dir is not None:
             self.restore()
 
-        self.buffer = []
-        for agent_id in range(self.num_agents):
-            # buffer
-            share_observation_space = self.envs.share_observation_space[
-                agent_id] if self.use_centralized_V else self.envs.observation_space[
-                    agent_id]
-            bu = SeparatedReplayBuffer(self.all_args,
-                                       self.envs.observation_space[agent_id],
-                                       share_observation_space,
-                                       self.envs.action_space[agent_id])
-            self.buffer.append(bu)
+        self.buffer = SharedReplayBuffer(self.all_args, self.num_agents,
+                                         self.envs.observation_space[0],
+                                         share_observation_space,
+                                         self.envs.action_space[0])
+        # for agent_id in range(self.num_agents):
+        #     # buffer
+        #     share_observation_space = self.envs.share_observation_space[
+        #         agent_id] if self.use_centralized_V else self.envs.observation_space[
+        #             agent_id]
+        #     bu = SeparatedReplayBuffer(self.all_args,
+        #                                self.envs.observation_space[agent_id],
+        #                                share_observation_space,
+        #                                self.envs.action_space[agent_id])
+        #     self.buffer.append(bu)
 
         if self.share_policy:
             self.trainer = TrainAlgo(self.all_args,
@@ -140,28 +144,34 @@ class Runner(object):
 
     @torch.no_grad()
     def compute(self):
-        for agent_id in range(self.num_agents):
-            trainer = self.trainer[
-                agent_id] if not self.share_policy else self.trainer
-            trainer.prep_rollout()
-            next_value = trainer.policy.get_values(
-                self.buffer[agent_id].share_obs[-1],
-                self.buffer[agent_id].rnn_states_critic[-1],
-                self.buffer[agent_id].masks[-1])
-            next_value = _t2n(next_value)
-            self.buffer[agent_id].compute_returns(next_value,
-                                                  trainer.value_normalizer)
+        if not self.share_policy:
+            nex_values = []
+            for agent_id in range(self.num_agents):
+                trainer = self.trainer[agent_id]
+                trainer.prep_rollout()
+                next_value = trainer.policy.get_values(
+                    self.buffer.share_obs[-1, :, agent_id],
+                    self.buffer.rnn_states_critic[-1, :, agent_id],
+                    self.buffer.masks[-1, :, agent_id])
+                assert next_value.shape == (self.n_rollout_threads, 1)
+                nex_values.append(next_value)
+            next_value = torch.stack(nex_values, dim=1)
+        else:
+            next_value = self.trainer.policy.get_values(
+                self.buffer.share_obs[-1].flatten(end_dim=1),
+                self.buffer.rnn_states_critic[-1].flatten(end_dim=1),
+                self.buffer.masks[-1].flatten(end_dim=1))
+            next_value = next_value.view(self.n_rollout_threads,
+                                         self.num_agents, 1)
+        self.buffer.compute_returns(next_value, trainer.value_normalizer)
 
     def train(self):
         train_infos = []
         # random update order
 
-        action_dim = self.buffer[0].actions.shape[-1]
-        factor = np.ones(
-            (self.episode_length, self.n_rollout_threads, action_dim),
-            dtype=np.float32)
-
-        distillation_agents = []
+        factor = torch.ones_like(self.buffer.factor[:, :, 0])
+        distill_value_targets = None
+        distill_actor_output_targets = None
 
         for agent_id in torch.randperm(self.num_agents):
             if self.share_policy:
@@ -169,92 +179,96 @@ class Runner(object):
             else:
                 trainer = self.trainer[agent_id]
             trainer.prep_training()
-            self.buffer[agent_id].update_factor(factor)
-            available_actions = None if self.buffer[agent_id].available_actions is None \
-                else self.buffer[agent_id].available_actions[:-1].reshape(-1, *self.buffer[agent_id].available_actions.shape[2:])
+            self.buffer.update_factor(agent_id, factor)
+            available_actions = None if self.buffer.available_actions is None \
+                else self.buffer.available_actions[:-1, :, agent_id].flatten(end_dim=1)
 
-            if self.all_args.algorithm_name == "hatrpo":
-                old_actions_logprob, _, _, _, _ = trainer.policy.actor.evaluate_actions(
-                    self.buffer[agent_id].obs[:-1].reshape(
-                        -1, *self.buffer[agent_id].obs.shape[2:]),
-                    self.buffer[agent_id].rnn_states[0:1].reshape(
-                        -1, *self.buffer[agent_id].rnn_states.shape[2:]),
-                    self.buffer[agent_id].actions.reshape(
-                        -1, *self.buffer[agent_id].actions.shape[2:]),
-                    self.buffer[agent_id].masks[:-1].reshape(
-                        -1, *self.buffer[agent_id].masks.shape[2:]),
-                    available_actions,
-                    self.buffer[agent_id].active_masks[:-1].reshape(
-                        -1, *self.buffer[agent_id].active_masks.shape[2:]))
-            else:
-                old_actions_logprob, _, _ = trainer.policy.actor.evaluate_actions(
-                    self.buffer[agent_id].obs[:-1].reshape(
-                        -1, *self.buffer[agent_id].obs.shape[2:]),
-                    self.buffer[agent_id].rnn_states[0:1].reshape(
-                        -1, *self.buffer[agent_id].rnn_states.shape[2:]),
-                    self.buffer[agent_id].actions.reshape(
-                        -1, *self.buffer[agent_id].actions.shape[2:]),
-                    self.buffer[agent_id].masks[:-1].reshape(
-                        -1, *self.buffer[agent_id].masks.shape[2:]),
-                    available_actions,
-                    self.buffer[agent_id].active_masks[:-1].reshape(
-                        -1, *self.buffer[agent_id].active_masks.shape[2:]))
-            train_info = trainer.train(agent_id, self.buffer,
-                                       distillation_agents)
-
-            if self.all_args.algorithm_name == "hatrpo":
-                new_actions_logprob, _, _, _, _ = trainer.policy.actor.evaluate_actions(
-                    self.buffer[agent_id].obs[:-1].reshape(
-                        -1, *self.buffer[agent_id].obs.shape[2:]),
-                    self.buffer[agent_id].rnn_states[0:1].reshape(
-                        -1, *self.buffer[agent_id].rnn_states.shape[2:]),
-                    self.buffer[agent_id].actions.reshape(
-                        -1, *self.buffer[agent_id].actions.shape[2:]),
-                    self.buffer[agent_id].masks[:-1].reshape(
-                        -1, *self.buffer[agent_id].masks.shape[2:]),
-                    available_actions,
-                    self.buffer[agent_id].active_masks[:-1].reshape(
-                        -1, *self.buffer[agent_id].active_masks.shape[2:]))
-            else:
-                new_actions_logprob, _, new_actor_output = trainer.policy.actor.evaluate_actions(
-                    self.buffer[agent_id].obs[:-1].reshape(
-                        -1, *self.buffer[agent_id].obs.shape[2:]),
-                    self.buffer[agent_id].rnn_states[0:1].reshape(
-                        -1, *self.buffer[agent_id].rnn_states.shape[2:]),
-                    self.buffer[agent_id].actions.reshape(
-                        -1, *self.buffer[agent_id].actions.shape[2:]),
-                    self.buffer[agent_id].masks[:-1].reshape(
-                        -1, *self.buffer[agent_id].masks.shape[2:]),
-                    available_actions,
-                    self.buffer[agent_id].active_masks[:-1].reshape(
-                        -1, *self.buffer[agent_id].active_masks.shape[2:]))
-                if self.all_args.share_policy:
-                    new_value, _ = trainer.policy.critic(
-                        self.buffer[agent_id].share_obs[:-1].reshape(
-                            -1, *self.buffer[agent_id].share_obs.shape[2:]),
-                        self.buffer[agent_id].rnn_states_critic[0:1].reshape(
-                            -1,
-                            *self.buffer[agent_id].rnn_states_critic.shape[2:]
-                        ),
-                        self.buffer[agent_id].masks[:-1].reshape(
-                            -1, *self.buffer[agent_id].masks.shape[2:]),
+            with torch.no_grad():
+                if self.all_args.algorithm_name == "hatrpo":
+                    old_actions_logprob, _, _, _, _ = trainer.policy.actor.evaluate_actions(
+                        self.buffer.obs[:-1, :, agent_id].flatten(end_dim=1),
+                        self.buffer.rnn_states[0:1, :,
+                                               agent_id].flatten(end_dim=1),
+                        self.buffer.actions[:, :, agent_id].flatten(end_dim=1),
+                        self.buffer.masks[:-1, :, agent_id].flatten(end_dim=1),
+                        available_actions,
+                        self.buffer.active_masks[:-1, :,
+                                                 agent_id].flatten(end_dim=1),
                     )
-                    distillation_agents.append(agent_id)
-                    new_value = _t2n(new_value).reshape(
-                        self.episode_length, self.n_rollout_threads, 1)
-                    new_actor_output = _t2n(new_actor_output).reshape(
-                        self.episode_length, self.n_rollout_threads,
-                        new_actor_output.shape[-1])
                 else:
-                    new_value = None
-                    new_actor_output = None
+                    old_actions_logprob, _, _ = trainer.policy.actor.evaluate_actions(
+                        self.buffer.obs[:-1, :, agent_id].flatten(end_dim=1),
+                        self.buffer.rnn_states[0:1, :,
+                                               agent_id].flatten(end_dim=1),
+                        self.buffer.actions[:, :, agent_id].flatten(end_dim=1),
+                        self.buffer.masks[:-1, :, agent_id].flatten(end_dim=1),
+                        available_actions,
+                        self.buffer.active_masks[:-1, :,
+                                                 agent_id].flatten(end_dim=1),
+                    )
+            train_info = trainer.train(agent_id, self.buffer,
+                                       distill_value_targets,
+                                       distill_actor_output_targets)
 
-            factor = factor * _t2n(
-                torch.exp(new_actions_logprob - old_actions_logprob).reshape(
-                    self.episode_length, self.n_rollout_threads, action_dim))
+            with torch.no_grad():
+                if self.all_args.algorithm_name == "hatrpo":
+                    new_actions_logprob, _, _, _, _ = trainer.policy.actor.evaluate_actions(
+                        self.buffer.obs[:-1, :, agent_id].flatten(end_dim=1),
+                        self.buffer.rnn_states[0:1, :,
+                                               agent_id].flatten(end_dim=1),
+                        self.buffer.actions[:, :, agent_id].flatten(end_dim=1),
+                        self.buffer.masks[:-1, :, agent_id].flatten(end_dim=1),
+                        available_actions,
+                        self.buffer.active_masks[:-1, :,
+                                                 agent_id].flatten(end_dim=1),
+                    )
+                else:
+                    new_actions_logprob, _, new_actor_output = trainer.policy.actor.evaluate_actions(
+                        self.buffer.obs[:-1, :, agent_id].flatten(end_dim=1),
+                        self.buffer.rnn_states[0:1, :,
+                                               agent_id].flatten(end_dim=1),
+                        self.buffer.actions[:, :, agent_id].flatten(end_dim=1),
+                        self.buffer.masks[:-1, :, agent_id].flatten(end_dim=1),
+                        available_actions,
+                        self.buffer.active_masks[:-1, :,
+                                                 agent_id].flatten(end_dim=1),
+                    )
+                    if self.all_args.share_policy:
+                        new_value, _ = trainer.policy.critic(
+                            self.buffer.share_obs[:-1, :,
+                                                  agent_id].flatten(end_dim=1),
+                            self.buffer.rnn_states_critic[0:1, :,
+                                                          agent_id].flatten(
+                                                              end_dim=1),
+                            self.buffer.masks[:-1, :,
+                                              agent_id].flatten(end_dim=1),
+                        )
+                        new_value = new_value.view(self.episode_length,
+                                                   self.n_rollout_threads, 1)
+                        new_actor_output = new_actor_output.view(
+                            self.episode_length, self.n_rollout_threads,
+                            new_actor_output.shape[-1])
+                        if distill_value_targets is None:
+                            distill_value_targets = new_value
+                        else:
+                            distill_value_targets = torch.cat(
+                                [distill_value_targets, new_value], -1)
+                        if distill_actor_output_targets is None:
+                            distill_actor_output_targets = new_actor_output
+                        else:
+                            distill_actor_output_targets = torch.cat([
+                                distill_actor_output_targets, new_actor_output
+                            ], -1)
+                    else:
+                        new_value = None
+                        new_actor_output = None
+
+                factor = factor * (new_actions_logprob -
+                                   old_actions_logprob).exp().view(
+                                       self.episode_length,
+                                       self.n_rollout_threads, -1)
             train_infos.append(train_info)
-            self.buffer[agent_id].after_update(new_value, new_actor_output)
-
+        self.buffer.after_update()
         return train_infos
 
     def save(self):

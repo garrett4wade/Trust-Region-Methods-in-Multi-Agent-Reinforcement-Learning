@@ -91,10 +91,15 @@ class HAPPO():
 
         return value_loss
 
-    def ppo_update(self, samples, update_actor=True):
-        share_obs_batch, obs_batch, rnn_states_batch, rnn_states_critic_batch, actions_batch, \
-        value_preds_batch, return_batch, masks_batch, active_masks_batch, old_action_log_probs_batch, \
-        adv_targ, available_actions_batch, factor_batch, _, _ = samples[0]
+    def ppo_update(self, sample, update_actor=True):
+        for x in sample:
+            if x is not None:
+                assert isinstance(x, torch.Tensor) and (x.device == torch.device('cuda:0'))
+        (share_obs_batch, obs_batch, rnn_states_batch, rnn_states_critic_batch,
+         actions_batch, value_preds_batch, return_batch, masks_batch,
+         active_masks_batch, old_action_log_probs_batch, adv_targ,
+         available_actions_batch, factor_batch, distill_value_targets,
+         distill_actor_output_targets) = sample
 
         old_action_log_probs_batch = check(old_action_log_probs_batch).to(
             **self.tpdv)
@@ -133,18 +138,21 @@ class HAPPO():
         value_loss = self.cal_value_loss(values, value_preds_batch,
                                          return_batch, active_masks_batch)
 
-        for ref_sample in samples[1:]:
-            if ref_sample is not None:
-                assert self.share_policy
-                ref_values, ref_actor_output = ref_sample[-2:]
-                ref_actor_output = check(ref_actor_output).to(**self.tpdv)
-                ref_values = check(ref_values).to(**self.tpdv)
+        if distill_value_targets is not None:
+            assert self.share_policy
+            distill_value_targets = torch.split(distill_value_targets,
+                                                1,
+                                                dim=-1)
+            for d_vt in distill_actor_output_targets:
+                value_loss += self.distill_coef * ((d_vt - values)**2).mean()
+
+        if distill_actor_output_targets is not None:
+            assert self.share_policy
+            distill_actor_output_targets = torch.split(
+                distill_actor_output_targets, actor_output.shape[-1], dim=-1)
+            for d_at in distill_actor_output_targets:
                 policy_loss += self.distill_coef * (
-                    (ref_actor_output - actor_output)**2).mean()
-                value_loss += self.distill_coef * (
-                    (ref_values - values)**2).mean()
-            else:
-                assert not self.share_policy
+                    (d_at - actor_output)**2).mean()
 
         self.policy.actor_optimizer.zero_grad()
 
@@ -173,33 +181,36 @@ class HAPPO():
 
         return value_loss, critic_grad_norm, policy_loss, dist_entropy, actor_grad_norm, imp_weights
 
-    def _generate_adv(self, buffer):
+    def _generate_adv(self, agent_id, buffer):
         if self._use_popart:
-            advantages = buffer.returns[:
-                                        -1] - self.value_normalizer.denormalize(
-                                            buffer.value_preds[:-1])
+            advantages = buffer.returns[:-1, :,
+                                        agent_id] - self.value_normalizer.denormalize(
+                                            buffer.value_preds[:-1, :,
+                                                               agent_id])
         else:
-            advantages = buffer.returns[:-1] - buffer.value_preds[:-1]
+            advantages = buffer.returns[:-1, :,
+                                        agent_id] - buffer.value_preds[:-1, :,
+                                                                       agent_id]
 
-        advantages_copy = advantages.copy()
-        advantages_copy[buffer.active_masks[:-1] == 0.0] = np.nan
-        mean_advantages = np.nanmean(advantages_copy)
-        std_advantages = np.nanstd(advantages_copy)
-        advantages = (advantages - mean_advantages) / (std_advantages + 1e-5)
-        return advantages
+        x = advantages
+        dim = tuple(range(len(x.shape)))
+        mask = buffer.active_masks[:-1, :, agent_id]
+        factor = mask.sum(dim=dim, keepdim=True)
+        x_sum = x.sum(dim=dim, keepdim=True)
+        x_sum_sq = x.square().sum(dim=dim, keepdim=True)
+        mean = x_sum / factor
+        meansq = x_sum_sq / factor
+        var = meansq - mean**2
+        # var *= factor / (factor - 1)
+        return (x - mean) / (var.sqrt() + 1e-5)
 
-    def train(self, agent_id, buffers, distillation_agents, update_actor=True):
-        """
-        Perform a training update using minibatch GD.
-        :param buffer: (SharedReplayBuffer) buffer containing training data.
-        :param update_actor: (bool) whether to update actor network.
-
-        :return train_info: (dict) contains information regarding training update (e.g. loss, grad norms, etc).
-        """
-        assert len(buffers) == self.num_agents, (len(buffers), self.num_agents)
-        buffer = buffers[agent_id]
-        buffers = [buffers[da_i] for da_i in distillation_agents]
-        advantages = self._generate_adv(buffer)
+    def train(self,
+              agent_id,
+              buffer,
+              distill_value_targets,
+              distill_actor_output_targets,
+              update_actor=True):
+        advantages = self._generate_adv(agent_id, buffer)
 
         train_info = {}
 
@@ -210,39 +221,31 @@ class HAPPO():
         train_info['critic_grad_norm'] = 0
         train_info['ratio'] = 0
 
-        assert self.num_mini_batch == 1, self.num_mini_batch
         for _ in range(self.ppo_epoch):
+            assert not self._use_naive_recurrent
             if self._use_recurrent_policy:
                 data_generator = buffer.recurrent_generator(
-                    advantages, self.num_mini_batch, self.data_chunk_length)
-            elif self._use_naive_recurrent:
-                data_generator = buffer.naive_recurrent_generator(
-                    advantages, self.num_mini_batch)
+                    agent_id,
+                    advantages,
+                    self.num_mini_batch,
+                    self.data_chunk_length,
+                    value_after_update=distill_value_targets,
+                    actor_output_after_update=distill_actor_output_targets,
+                )
             else:
                 data_generator = buffer.feed_forward_generator(
-                    advantages, self.num_mini_batch)
+                    agent_id,
+                    advantages,
+                    self.num_mini_batch,
+                    value_after_update=distill_value_targets,
+                    actor_output_after_update=distill_actor_output_targets,
+                )
 
-            reference_data_generators = [[
-                None for _ in range(self.num_mini_batch)
-            ] for _ in range(len(buffers))]
-            if self.share_policy:
-                reference_data_generators = []
-                for buf in buffers:
-                    adv = self._generate_adv(buf)
-                    if self._use_recurrent_policy:
-                        dg = buf.recurrent_generator(adv, self.num_mini_batch,
-                                                     self.data_chunk_length)
-                    elif self._use_naive_recurrent:
-                        dg = buf.naive_recurrent_generator(
-                            adv, self.num_mini_batch)
-                    else:
-                        dg = buf.feed_forward_generator(
-                            adv, self.num_mini_batch)
-                    reference_data_generators.append(dg)
-
-            for samples in zip(data_generator, *reference_data_generators):
-                value_loss, critic_grad_norm, policy_loss, dist_entropy, actor_grad_norm, imp_weights = self.ppo_update(
-                    samples, update_actor=update_actor)
+            for sample in data_generator:
+                (value_loss, critic_grad_norm, policy_loss, dist_entropy,
+                 actor_grad_norm,
+                 imp_weights) = self.ppo_update(sample,
+                                                update_actor=update_actor)
 
                 train_info['value_loss'] += value_loss.item()
                 train_info['policy_loss'] += policy_loss.item()
