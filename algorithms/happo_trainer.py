@@ -101,16 +101,6 @@ class HAPPO():
          available_actions_batch, factor_batch, distill_value_targets,
          distill_actor_output_targets) = sample
 
-        old_action_log_probs_batch = check(old_action_log_probs_batch).to(
-            **self.tpdv)
-        adv_targ = check(adv_targ).to(**self.tpdv)
-
-        value_preds_batch = check(value_preds_batch).to(**self.tpdv)
-        return_batch = check(return_batch).to(**self.tpdv)
-
-        active_masks_batch = check(active_masks_batch).to(**self.tpdv)
-
-        factor_batch = check(factor_batch).to(**self.tpdv)
         # Reshape to do in a single forward pass for all steps
         values, action_log_probs, dist_entropy, actor_output = self.policy.evaluate_actions(
             share_obs_batch, obs_batch, rnn_states_batch,

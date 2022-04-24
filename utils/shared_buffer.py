@@ -147,82 +147,61 @@ class SharedReplayBuffer(object):
         if self.available_actions is not None:
             self.available_actions[0] = self.available_actions[-1]
 
-    def compute_returns(self, next_value, value_normalizer=None):
+    def compute_returns(self, next_value, value_normalizers=None):
         """
         use proper time limits, the difference of use or not is whether use bad_mask
         """
+        self.value_preds[-1] = next_value
+        if self._use_popart or self._use_valuenorm:
+            if isinstance(value_normalizers, list):
+                value_preds = []
+                for agent_id, value_normalizer in enumerate(value_normalizers):
+                    value_preds.append(value_normalizer.denormalize(self.value_preds[:, :, agent_id]))
+                value_preds = torch.stack(value_preds, -2)
+            else:
+                value_preds = value_normalizers.denormalize(self.value_preds)
+        else:
+            value_preds = self.value_preds
         if self._use_proper_time_limits:
             if self._use_gae:
-                self.value_preds[-1] = next_value
                 gae = 0
                 for step in reversed(range(self.rewards.shape[0])):
-                    if self._use_popart or self._use_valuenorm:
-                        delta = self.rewards[
-                            step] + self.gamma * value_normalizer.denormalize(
-                                self.value_preds[step + 1]) * self.masks[
-                                    step + 1] - value_normalizer.denormalize(
-                                        self.value_preds[step])
-                        gae = delta + self.gamma * self.gae_lambda * self.masks[
-                            step + 1] * gae
-                        gae = gae * self.bad_masks[step + 1]
-                        self.returns[
-                            step] = gae + value_normalizer.denormalize(
-                                self.value_preds[step])
-                    else:
-                        delta = self.rewards[
-                            step] + self.gamma * self.value_preds[
-                                step + 1] * self.masks[
-                                    step + 1] - self.value_preds[step]
-                        gae = delta + self.gamma * self.gae_lambda * self.masks[
-                            step + 1] * gae
-                        gae = gae * self.bad_masks[step + 1]
-                        self.returns[step] = gae + self.value_preds[step]
+                    delta = self.rewards[step] + self.gamma * value_preds[
+                        step + 1] * self.masks[step + 1] - value_preds[step]
+                    gae = delta + self.gamma * self.gae_lambda * self.masks[
+                        step + 1] * gae
+                    gae = gae * self.bad_masks[step + 1]
+                    self.returns[step] = gae + value_preds[step]
             else:
-                self.returns[-1] = next_value
                 for step in reversed(range(self.rewards.shape[0])):
-                    if self._use_popart:
-                        self.returns[step] = (self.returns[step + 1] * self.gamma * self.masks[step + 1] + self.rewards[step]) * self.bad_masks[step + 1] \
-                            + (1 - self.bad_masks[step + 1]) * value_normalizer.denormalize(self.value_preds[step])
-                    else:
-                        self.returns[step] = (self.returns[step + 1] * self.gamma * self.masks[step + 1] + self.rewards[step]) * self.bad_masks[step + 1] \
-                            + (1 - self.bad_masks[step + 1]) * self.value_preds[step]
+                    self.returns[step] = (
+                        self.returns[step + 1] * self.gamma *
+                        self.masks[step + 1] +
+                        self.rewards[step]) * self.bad_masks[step + 1] + (
+                            1 - self.bad_masks[step + 1]) * value_preds[step]
         else:
             if self._use_gae:
-                self.value_preds[-1] = next_value
                 gae = 0
                 for step in reversed(range(self.rewards.shape[0])):
-                    if self._use_popart or self._use_valuenorm:
-                        delta = self.rewards[
-                            step] + self.gamma * value_normalizer.denormalize(
-                                self.value_preds[step + 1]) * self.masks[
-                                    step + 1] - value_normalizer.denormalize(
-                                        self.value_preds[step])
-                        gae = delta + self.gamma * self.gae_lambda * self.masks[
-                            step + 1] * gae
-                        self.returns[
-                            step] = gae + value_normalizer.denormalize(
-                                self.value_preds[step])
-                    else:
-                        delta = self.rewards[
-                            step] + self.gamma * self.value_preds[
-                                step + 1] * self.masks[
-                                    step + 1] - self.value_preds[step]
-                        gae = delta + self.gamma * self.gae_lambda * self.masks[
-                            step + 1] * gae
-                        self.returns[step] = gae + self.value_preds[step]
+                    delta = self.rewards[step] + self.gamma * value_preds[
+                        step + 1] * self.masks[step + 1] - value_preds[step]
+                    gae = delta + self.gamma * self.gae_lambda * self.masks[
+                        step + 1] * gae
+                    self.returns[step] = gae + value_preds[step]
             else:
-                self.returns[-1] = next_value
                 for step in reversed(range(self.rewards.shape[0])):
                     self.returns[step] = self.returns[
                         step + 1] * self.gamma * self.masks[
                             step + 1] + self.rewards[step]
 
-    def feed_forward_generator(self,
-                               agent_idx,
-                               advantages,
-                               num_mini_batch,
-                               value_after_update=None,
-                               actor_output_after_update=None,):
+    def feed_forward_generator(
+        self,
+        agent_idx,
+        advantages,
+        num_mini_batch,
+        value_after_update=None,
+        actor_output_after_update=None,
+    ):
         mini_batch_size = None
         episode_length, n_rollout_threads = self.rewards.shape[0:2]
         batch_size = n_rollout_threads * episode_length

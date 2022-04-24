@@ -4,6 +4,7 @@ from functools import reduce
 import torch
 import wandb
 from runners.separated.base_runner import Runner
+from utils.timing import Timing
 
 
 def _t2n(x):
@@ -29,38 +30,45 @@ class FootballRunner(Runner):
 
         for episode in range(episodes):
             assert not self.use_linear_lr_decay
+            timing = Timing()
 
             train_ep_ret = train_ep_length = train_ep_cnt = 0
 
             for step in range(self.episode_length):
                 # Sample actions
-                (values, actions, action_log_probs, rnn_states,
-                 rnn_states_critic) = self.collect(step)
+                with timing.add_time("inference"):
+                    (values, actions, action_log_probs, rnn_states,
+                     rnn_states_critic) = self.collect(step)
 
-                # Obser reward and next obs
-                (obs, share_obs, rewards, dones, infos,
-                 available_actions) = self.envs.step(actions.cpu().numpy())
-                (obs, share_obs, rewards, dones, available_actions) = map(
-                    to_tensor,
-                    (obs, share_obs, rewards, dones, available_actions))
+                with timing.add_time("envstep"):
+                    # Obser reward and next obs
+                    (obs, share_obs, rewards, dones, infos,
+                     available_actions) = self.envs.step(actions.cpu().numpy())
+                    (obs, share_obs, rewards, dones, available_actions) = map(
+                        to_tensor,
+                        (obs, share_obs, rewards, dones, available_actions))
 
-                data = obs, share_obs, rewards, dones, infos, available_actions, \
-                       values, actions, action_log_probs, \
-                       rnn_states, rnn_states_critic
+                    for (done, info) in zip(dones, infos):
+                        if done.all():
+                            train_ep_ret += info[0]['episode']['r']
+                            train_ep_cnt += 1
+                            train_ep_length += info[0]['episode']['l']
 
-                # insert data into buffer
-                self.insert(data)
+                with timing.add_time("buffer"):
+                    data = obs, share_obs, rewards, dones, infos, available_actions, \
+                        values, actions, action_log_probs, \
+                        rnn_states, rnn_states_critic
 
-                for (done, info) in zip(dones, infos):
-                    if done.all():
-                        train_ep_ret += info[0]['episode']['r']
-                        train_ep_cnt += 1
-                        train_ep_length += info[0]['episode']['l']
+                    # insert data into buffer
+                    self.insert(data)
 
             # compute return and update network
-            self.compute()
-            train_infos = self.train()
+            with timing.add_time("gae"):
+                self.compute()
+            with timing.add_time("train"):
+                train_infos = self.train()
 
+            print(timing)
             # post process
             total_num_steps = (
                 episode + 1) * self.episode_length * self.n_rollout_threads
@@ -172,37 +180,12 @@ class FootballRunner(Runner):
         obs, share_obs, rewards, dones, infos, available_actions, \
         values, actions, action_log_probs, rnn_states, rnn_states_critic = data
 
-        dones_env = dones.all(1)
+        dones = dones.unsqueeze(-1)
+        dones_env = dones.all(1, keepdim=True)
+        masks = 1 - dones_env
 
-        rnn_states[dones_env == True] = torch.zeros(
-            ((dones_env == True).sum(), self.num_agents, self.recurrent_N,
-             self.hidden_size),
-            dtype=torch.float32,
-            device=self.device)
-        rnn_states_critic[dones_env == True] = torch.zeros(
-            ((dones_env == True).sum(), self.num_agents, self.recurrent_N,
-             self.hidden_size),
-            dtype=torch.float32,
-            device=self.device)
-
-        masks = torch.ones((self.n_rollout_threads, self.num_agents, 1),
-                           dtype=torch.float32,
-                           device=self.device)
-        masks[dones_env == True] = torch.zeros(
-            ((dones_env == True).sum(), self.num_agents, 1),
-            dtype=torch.float32,
-            device=self.device)
-
-        active_masks = torch.ones((self.n_rollout_threads, self.num_agents, 1),
-                                  dtype=torch.float32,
-                                  device=self.device)
-        active_masks[dones == True] = torch.zeros(((dones == True).sum(), 1),
-                                                  dtype=torch.float32,
-                                                  device=self.device)
-        active_masks[dones_env == True] = torch.ones(
-            ((dones_env == True).sum(), self.num_agents, 1),
-            dtype=torch.float32,
-            device=self.device)
+        active_masks = 1 - dones
+        active_masks = active_masks * (1 - dones_env) + dones_env
 
         bad_masks = torch.tensor(
             [[[0.0] if info[agent_id]['bad_transition'] else [1.0]
@@ -305,20 +288,7 @@ class FootballRunner(Runner):
 
             eval_dones_env = eval_dones.all(1)
 
-            eval_rnn_states[eval_dones_env == True] = torch.zeros(
-                ((eval_dones_env == True).sum(), self.num_agents,
-                 self.recurrent_N, self.hidden_size),
-                dtype=torch.float32,
-                device=self.device)
-
-            eval_masks = torch.ones(
-                (self.all_args.n_eval_rollout_threads, self.num_agents, 1),
-                dtype=torch.float32,
-                device=self.device)
-            eval_masks[eval_dones_env == True] = torch.zeros(
-                ((eval_dones_env == True).sum(), self.num_agents, 1),
-                dtype=torch.float32,
-                device=self.device)
+            eval_masks[:] = 1 - eval_dones.unsqueeze(-1).all(1, keepdim=True)
 
             for eval_i in range(self.n_eval_rollout_threads):
                 if eval_dones_env[eval_i]:

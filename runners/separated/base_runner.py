@@ -156,6 +156,7 @@ class Runner(object):
                 assert next_value.shape == (self.n_rollout_threads, 1)
                 nex_values.append(next_value)
             next_value = torch.stack(nex_values, dim=1)
+            self.buffer.compute_returns(next_value, [trainer.value_normalizer for trainer in self.trainer])
         else:
             next_value = self.trainer.policy.get_values(
                 self.buffer.share_obs[-1].flatten(end_dim=1),
@@ -163,13 +164,13 @@ class Runner(object):
                 self.buffer.masks[-1].flatten(end_dim=1))
             next_value = next_value.view(self.n_rollout_threads,
                                          self.num_agents, 1)
-        self.buffer.compute_returns(next_value, trainer.value_normalizer)
+            self.buffer.compute_returns(next_value, self.trainer.value_normalizer)
 
     def train(self):
         train_infos = []
         # random update order
 
-        factor = torch.ones_like(self.buffer.factor[:, :, 0])
+        log_factor = torch.zeros_like(self.buffer.factor[:, :, 0])
         distill_value_targets = None
         distill_actor_output_targets = None
 
@@ -179,7 +180,7 @@ class Runner(object):
             else:
                 trainer = self.trainer[agent_id]
             trainer.prep_training()
-            self.buffer.update_factor(agent_id, factor)
+            self.buffer.update_factor(agent_id, log_factor.exp())
             available_actions = None if self.buffer.available_actions is None \
                 else self.buffer.available_actions[:-1, :, agent_id].flatten(end_dim=1)
 
@@ -263,10 +264,8 @@ class Runner(object):
                         new_value = None
                         new_actor_output = None
 
-                factor = factor * (new_actions_logprob -
-                                   old_actions_logprob).exp().view(
-                                       self.episode_length,
-                                       self.n_rollout_threads, -1)
+                log_factor += (new_actions_logprob - old_actions_logprob).view(
+                    self.episode_length, self.n_rollout_threads, -1)
             train_infos.append(train_info)
         self.buffer.after_update()
         return train_infos
