@@ -1,10 +1,10 @@
 #!/bin/bash
 maps=(
     "academy_3_vs_1_with_keeper"
-    # "academy_run_pass_and_shoot_with_keeper" 
-    # "academy_corner"
-    # "academy_counterattack_easy"
-    # "academy_counterattack_hard"
+    "academy_run_pass_and_shoot_with_keeper" 
+    "academy_corner"
+    "academy_counterattack_easy"
+    "academy_counterattack_hard"
     # "academy_pass_and_shoot_with_keeper"
 )
 shortcut=(
@@ -13,7 +13,7 @@ shortcut=(
     "corner"
     "ca_easy"
     "ca_hard"
-    "ps"
+    # "ps"
 )
 len=${#maps[@]}
 for (( i=0; i<$len; i++ ));
