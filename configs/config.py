@@ -166,7 +166,8 @@ def get_config():
         help=
         "[for wandb usage], to specify user's name for simply collecting training data."
     )
-    parser.add_argument("--distill_coef", type=float, default=1.0)
+    parser.add_argument("--actor_distill_coef", type=float, default=1.0)
+    parser.add_argument("--critic_distill_coef", type=float, default=1.0)
 
     # prepare parameters
     parser.add_argument("--algorithm_name",

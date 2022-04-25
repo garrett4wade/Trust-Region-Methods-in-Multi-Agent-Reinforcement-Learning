@@ -17,7 +17,8 @@ class HAPPO():
     def __init__(self, args, policy, device=torch.device("cpu")):
 
         self.share_policy = args.share_policy
-        self.distill_coef = args.distill_coef
+        self.actor_distill_coef = args.actor_distill_coef
+        self.critic_distill_coef = args.critic_distill_coef
         self.num_agents = args.num_agents
         self.device = device
         self.tpdv = dict(dtype=torch.float32, device=device)
@@ -136,11 +137,13 @@ class HAPPO():
 
         for d_vt in distill_value_targets:
             assert self.share_policy
-            value_loss += self.distill_coef * ((d_vt - values)**2).mean()
+            assert d_vt.shape[-1] == 1
+            value_loss += self.critic_distill_coef * ((d_vt - values)**2).mean()
 
         for d_at in distill_actor_output_targets:
             assert self.share_policy
-            policy_loss += self.distill_coef * (
+            assert d_at.shape[-1] == actor_output.shape[-1]
+            policy_loss += self.actor_distill_coef * (
                 (d_at - actor_output)**2).mean()
 
         self.policy.actor_optimizer.zero_grad()
