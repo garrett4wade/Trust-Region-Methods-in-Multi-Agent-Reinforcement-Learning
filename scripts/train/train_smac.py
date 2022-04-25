@@ -2,6 +2,8 @@
 import sys
 import os
 
+import wandb
+
 sys.path.append("../")
 import socket
 import setproctitle
@@ -96,6 +98,36 @@ def parse_args(args, parser):
 def main(args):
     parser = get_config()
     all_args = parse_args(args, parser)
+    # ppo epoch
+    if all_args.map_name in [
+            '2c_vs_64zg', '3s5z', 'MMM2', '3s5z_vs_3s6z', '27m_vs_30m',
+            '6h_vs_8z', 'corridor'
+    ]:
+        all_args.ppo_epoch = 5
+    elif all_args.map_name in ['25m', '5m_vs_6m', '10m_vs_11m']:
+        all_args.ppo_epoch = 10
+    elif all_args.map_name in [
+            '2m_vs_1z', '3m', '2s_vs_1sc', '3s_vs_3z', '3s_vs_4z', '3s_vs_5z',
+            'so_many_baneling', '8m', 'MMM', '3c3s5z', '8m_vs_9m',
+            'bane_vs_bane'
+    ]:
+        all_args.ppo_epoch = 15
+    else:
+        raise NotImplementedError(all_args.map_name)
+    # MMM2
+    if all_args.map_name == 'MMM2':
+        all_args.gain = 1
+        all_args.num_mini_batch = 2
+    # clip
+    if all_args.map_name in ['3s_vs_5z', '8m_vs_9m', '5m_vs_6m']:
+        all_args.clip_param = 0.05
+    else:
+        all_args.clip_param = 0.2
+    # mlp
+    if all_args.map_name in ['3s_vs_5z', '3s_vs_4z', '6h_vs_8z', 'corridor']:
+        all_args.use_recurrent_policy = False
+    else:
+        all_args.use_recurrent_policy = True
     print("all config: ", all_args)
     if all_args.seed_specify:
         all_args.seed = all_args.runing_id
@@ -123,21 +155,34 @@ def main(args):
     if not run_dir.exists():
         os.makedirs(str(run_dir))
 
-    if not run_dir.exists():
-        curr_run = 'run1'
+    if all_args.use_wandb:
+        run = wandb.init(config=all_args,
+                         project=all_args.map_name,
+                         group=all_args.experiment_name,
+                         entity=all_args.user_name,
+                         notes=socket.gethostname(),
+                         name=str(all_args.algorithm_name) + "_" +
+                         str(all_args.experiment_name) + "_seed" +
+                         str(all_args.seed),
+                         dir=str(run_dir),
+                         job_type="training",
+                         reinit=True)
     else:
-        exst_run_nums = [
-            int(str(folder.name).split('run')[1])
-            for folder in run_dir.iterdir()
-            if str(folder.name).startswith('run')
-        ]
-        if len(exst_run_nums) == 0:
+        if not run_dir.exists():
             curr_run = 'run1'
         else:
-            curr_run = 'run%i' % (max(exst_run_nums) + 1)
-    run_dir = run_dir / curr_run
-    if not run_dir.exists():
-        os.makedirs(str(run_dir))
+            exst_run_nums = [
+                int(str(folder.name).split('run')[1])
+                for folder in run_dir.iterdir()
+                if str(folder.name).startswith('run')
+            ]
+            if len(exst_run_nums) == 0:
+                curr_run = 'run1'
+            else:
+                curr_run = 'run%i' % (max(exst_run_nums) + 1)
+        run_dir = run_dir / curr_run
+        if not run_dir.exists():
+            os.makedirs(str(run_dir))
 
     setproctitle.setproctitle(
         str(all_args.algorithm_name) + "-" + str(all_args.env_name) + "-" +
@@ -152,6 +197,7 @@ def main(args):
     envs = make_train_env(all_args)
     eval_envs = make_eval_env(all_args) if all_args.use_eval else None
     num_agents = get_map_params(all_args.map_name)["n_agents"]
+    all_args.num_agents = num_agents
 
     config = {
         "all_args": all_args,
@@ -169,9 +215,13 @@ def main(args):
     envs.close()
     if all_args.use_eval and eval_envs is not envs:
         eval_envs.close()
-    runner.writter.export_scalars_to_json(str(runner.log_dir +
-                                              '/summary.json'))
-    runner.writter.close()
+
+    if all_args.use_wandb:
+        run.close()
+    else:
+        runner.writter.export_scalars_to_json(
+            str(runner.log_dir + '/summary.json'))
+        runner.writter.close()
 
 
 if __name__ == "__main__":

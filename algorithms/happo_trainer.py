@@ -184,9 +184,10 @@ class HAPPO():
                                         agent_id] - buffer.value_preds[:-1, :,
                                                                        agent_id]
 
-        x = advantages
+        x = advantages.clone()
         dim = tuple(range(len(x.shape)))
         mask = buffer.active_masks[:-1, :, agent_id]
+        x = x * mask
         factor = mask.sum(dim=dim, keepdim=True)
         x_sum = x.sum(dim=dim, keepdim=True)
         x_sum_sq = x.square().sum(dim=dim, keepdim=True)
