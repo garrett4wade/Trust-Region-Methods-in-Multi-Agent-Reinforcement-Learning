@@ -168,6 +168,7 @@ def get_config():
     )
     parser.add_argument("--actor_distill_coef", type=float, default=1.0)
     parser.add_argument("--critic_distill_coef", type=float, default=1.0)
+    parser.add_argument("--sample_reuse", type=int, default=1)
 
     # prepare parameters
     parser.add_argument("--algorithm_name",

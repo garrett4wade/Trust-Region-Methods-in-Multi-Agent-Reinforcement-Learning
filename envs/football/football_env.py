@@ -14,7 +14,7 @@ map_agent_registry = {
     "1_vs_1_easy": (1, 1, 500, None),
     "5_vs_5": (5, 5, 3000, None),
     "academy_3_vs_1_with_keeper": (3, 2, 400, int(25e6)),
-    "academy_corner": (11, 11, 400,  int(50e6)),
+    "academy_corner": (11, 11, 400, int(50e6)),
     "academy_counterattack_easy": (11, 11, 400, int(25e6)),
     "academy_counterattack_hard": (11, 11, 400, int(50e6)),
     "academy_run_pass_and_shoot_with_keeper": (3, 2, 400, int(25e6)),
@@ -107,8 +107,8 @@ class FootballEnvironment:
             (obs.shape[0], self.__env.action_space[0].n), dtype=np.uint8)
         info['episode'] = dict(r=self.__episode_return.mean().item(),
                                l=self.__step_count.item())
-        info['bad_transition'] = (done
-                                  and self.__step_count.item() >= self.__step_limit)
+        info['bad_transition'] = (
+            done and self.__step_count.item() >= self.__step_limit)
         return (
             obs,
             obs,
@@ -120,3 +120,6 @@ class FootballEnvironment:
 
     def render(self) -> None:
         self.__env.render()
+
+    def close(self):
+        self.__env.close()

@@ -177,7 +177,7 @@ def main(args):
         eval_envs.close()
 
     if all_args.use_wandb:
-        run.close()
+        run.finish()
     else:
         runner.writter.export_scalars_to_json(
             str(runner.log_dir + '/summary.json'))
