@@ -200,7 +200,7 @@ class SMACRunner(Runner):
         values, actions, action_log_probs, rnn_states, rnn_states_critic = data
 
         dones = dones.unsqueeze(-1)
-        dones_env = dones.all(1, keepdim=True)
+        dones_env = dones.all(1, keepdim=True).float()
         masks = 1 - dones_env
 
         active_masks = 1 - dones
@@ -313,7 +313,7 @@ class SMACRunner(Runner):
 
             eval_dones_env = eval_dones.all(1)
 
-            eval_masks[:] = 1 - eval_dones.unsqueeze(-1).all(1, keepdim=True)
+            eval_masks[:] = 1 - eval_dones.unsqueeze(-1).all(1, keepdim=True).float()
 
             for eval_i in range(self.n_eval_rollout_threads):
                 if eval_dones_env[eval_i]:
