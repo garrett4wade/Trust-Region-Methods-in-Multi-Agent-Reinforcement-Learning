@@ -13,6 +13,6 @@ maps=(
 len=${#maps[@]}
 for (( i=0; i<$len; i++ ));
 do
-    screen -d -m -S ${maps[$i]} bash train_smac.sh ${maps[$i]} 0.0 0.0
+    screen -d -m -S ${maps[$i]} bash train_smac_share.sh ${maps[$i]} 0.0 0.0
     echo "${maps[$i]}"
 done
