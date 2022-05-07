@@ -1,9 +1,11 @@
+import torch
 import torch.nn as nn
 from .util import init, get_clones
-
 """MLP modules."""
 
+
 class MLPLayer(nn.Module):
+
     def __init__(self, input_dim, hidden_size, layer_N, use_orthogonal, use_ReLU):
         super(MLPLayer, self).__init__()
         self._layer_N = layer_N
@@ -15,13 +17,14 @@ class MLPLayer(nn.Module):
         def init_(m):
             return init(m, init_method, lambda x: nn.init.constant_(x, 0), gain=gain)
 
-        self.fc1 = nn.Sequential(
-            init_(nn.Linear(input_dim, hidden_size)), active_func, nn.LayerNorm(hidden_size))
+        self.fc1 = nn.Sequential(init_(nn.Linear(input_dim, hidden_size)), active_func, nn.LayerNorm(hidden_size))
         # self.fc_h = nn.Sequential(init_(
         #     nn.Linear(hidden_size, hidden_size)), active_func, nn.LayerNorm(hidden_size))
         # self.fc2 = get_clones(self.fc_h, self._layer_N)
-        self.fc2 = nn.ModuleList([nn.Sequential(init_(
-            nn.Linear(hidden_size, hidden_size)), active_func, nn.LayerNorm(hidden_size)) for i in range(self._layer_N)])
+        self.fc2 = nn.ModuleList([
+            nn.Sequential(init_(nn.Linear(hidden_size, hidden_size)), active_func, nn.LayerNorm(hidden_size))
+            for i in range(self._layer_N)
+        ])
 
     def forward(self, x):
         x = self.fc1(x)
@@ -31,7 +34,8 @@ class MLPLayer(nn.Module):
 
 
 class MLPBase(nn.Module):
-    def __init__(self, args, obs_shape, cat_self=True, attn_internal=False):
+
+    def __init__(self, args, obs_shape, act_dim=None, cat_self=True, attn_internal=False):
         super(MLPBase, self).__init__()
 
         self._use_feature_normalization = args.use_feature_normalization
@@ -46,13 +50,18 @@ class MLPBase(nn.Module):
         if self._use_feature_normalization:
             self.feature_norm = nn.LayerNorm(obs_dim)
 
-        self.mlp = MLPLayer(obs_dim, self.hidden_size,
-                              self._layer_N, self._use_orthogonal, self._use_ReLU)
+        if act_dim is not None:
+            assert args.autoregressive
+            obs_dim += args.num_agents * act_dim
 
-    def forward(self, x):
+        self.mlp = MLPLayer(obs_dim, self.hidden_size, self._layer_N, self._use_orthogonal, self._use_ReLU)
+
+    def forward(self, x, agent_actions=None):
         if self._use_feature_normalization:
             x = self.feature_norm(x)
 
+        if agent_actions is not None:
+            x = torch.cat([x, agent_actions], -1)
         x = self.mlp(x)
 
         return x

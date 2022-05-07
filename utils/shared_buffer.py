@@ -94,24 +94,41 @@ class SharedReplayBuffer(object):
 
         self.factor = torch.zeros_like(self.action_log_probs)
 
+        self.autoregressive = args.autoregressive
+        if args.autoregressive:
+            self.agent_actions = torch.zeros(
+                (self.episode_length, self.n_rollout_threads, num_agents,
+                 num_agents, 1),
+                dtype=torch.int32,
+                device=device)
+            self.execution_masks = torch.zeros(
+                (self.episode_length, self.n_rollout_threads, num_agents,
+                 num_agents),
+                dtype=torch.float32,
+                device=device)
+
         self.step = 0
 
     def update_factor(self, agent_idx, factor):
         self.factor[:, :, agent_idx] = factor
 
-    def insert(self,
-               share_obs,
-               obs,
-               rnn_states,
-               rnn_states_critic,
-               actions,
-               action_log_probs,
-               value_preds,
-               rewards,
-               masks,
-               bad_masks=None,
-               active_masks=None,
-               available_actions=None):
+    def insert(
+        self,
+        share_obs,
+        obs,
+        rnn_states,
+        rnn_states_critic,
+        actions,
+        action_log_probs,
+        value_preds,
+        rewards,
+        masks,
+        bad_masks=None,
+        active_masks=None,
+        available_actions=None,
+        agent_actions=None,
+        execution_masks=None,
+    ):
         self.share_obs[self.step + 1] = share_obs
         self.obs[self.step + 1] = obs
         self.rnn_states[self.step + 1] = rnn_states
@@ -127,6 +144,10 @@ class SharedReplayBuffer(object):
             self.active_masks[self.step + 1] = active_masks
         if available_actions is not None:
             self.available_actions[self.step + 1] = available_actions
+
+        if self.autoregressive:
+            self.agent_actions[self.step] = agent_actions
+            self.execution_masks[self.step] = execution_masks
 
         self.step = (self.step + 1) % self.episode_length
 
@@ -236,6 +257,11 @@ class SharedReplayBuffer(object):
         if self.factor is not None:
             # factor = self.factor.reshape(-1,1)
             factor = self.factor[:, :, agent_idx].flatten(end_dim=1)
+        if self.autoregressive:
+            agent_actions = self.agent_actions[:, :, agent_idx].flatten(
+                end_dim=1)  # [B, n_agents, 1]
+            execution_masks = self.execution_masks[:, :, agent_idx].flatten(
+                end_dim=1)  # [B, n_agents]
         if values_after_update is not None:
             new_values = []
             for value_after_update in values_after_update:
@@ -287,13 +313,20 @@ class SharedReplayBuffer(object):
             else:
                 new_actor_output_batch = None
 
+            if self.autoregressive:
+                agent_actions_batch = agent_actions[indices]
+                execution_masks_batch = execution_masks_batch[indices]
+            else:
+                agent_actions_batch = execution_masks_batch = None
+
             if self.factor is None:
                 yield (share_obs_batch, obs_batch, rnn_states_batch,
                        rnn_states_critic_batch, actions_batch,
                        value_preds_batch, return_batch, masks_batch,
                        active_masks_batch, old_action_log_probs_batch,
                        adv_targ, available_actions_batch, None,
-                       new_value_batch, new_actor_output_batch)
+                       new_value_batch, new_actor_output_batch,
+                       agent_actions_batch, execution_masks_batch)
             else:
                 factor_batch = factor[indices]
                 yield (share_obs_batch, obs_batch, rnn_states_batch,
@@ -301,7 +334,8 @@ class SharedReplayBuffer(object):
                        value_preds_batch, return_batch, masks_batch,
                        active_masks_batch, old_action_log_probs_batch,
                        adv_targ, available_actions_batch, factor_batch,
-                       new_value_batch, new_actor_output_batch)
+                       new_value_batch, new_actor_output_batch,
+                       agent_actions_batch, execution_masks_batch)
 
     def recurrent_generator(self,
                             agent_idx,
@@ -346,6 +380,11 @@ class SharedReplayBuffer(object):
         active_masks = _cast(self.active_masks[:-1, :, agent_idx])
         if self.factor is not None:
             factor = _cast(self.factor[:, :, agent_idx])
+        if self.autoregressive:
+            agent_actions = _cast(
+                self.agent_actions[:, :, agent_idx])  # [T, bs, n_agents, 1]
+            execution_masks = _cast(
+                self.execution_masks[:, :, agent_idx])  # [T, bs, n_agents]
         if values_after_update is not None:
             new_values = [
                 _cast(value_after_update)
@@ -375,6 +414,9 @@ class SharedReplayBuffer(object):
                 available_actions_batch = available_actions[:, indices]
             if self.factor is not None:
                 factor_batch = factor[:, indices]
+            if self.autoregressive:
+                agent_actions_batch = agent_actions[:, indices]
+                execution_masks_batch = execution_masks[:, indices]
             if values_after_update is not None:
                 new_value_batch = [
                     new_value[:, indices] for new_value in new_values
@@ -406,6 +448,12 @@ class SharedReplayBuffer(object):
                 available_actions_batch = None
             if self.factor is not None:
                 factor_batch = factor_batch.flatten(end_dim=1)
+            if self.autoregressive:
+                agent_actions_batch = agent_actions_batch.flatten(end_dim=1)
+                execution_masks_batch = execution_masks_batch.flatten(
+                    end_dim=1)
+            else:
+                agent_actions_batch = execution_masks_batch = None
             if values_after_update is not None:
                 new_value_batch = [
                     x.flatten(end_dim=1) for x in new_value_batch
@@ -431,11 +479,13 @@ class SharedReplayBuffer(object):
                        value_preds_batch, return_batch, masks_batch,
                        active_masks_batch, old_action_log_probs_batch,
                        adv_targ, available_actions_batch, factor_batch,
-                       new_value_batch, new_actor_output_batch)
+                       new_value_batch, new_actor_output_batch,
+                       agent_actions_batch, execution_masks_batch)
             else:
                 yield (share_obs_batch, obs_batch, rnn_states_batch,
                        rnn_states_critic_batch, actions_batch,
                        value_preds_batch, return_batch, masks_batch,
                        active_masks_batch, old_action_log_probs_batch,
                        adv_targ, available_actions_batch, None,
-                       new_value_batch, new_actor_output_batch)
+                       new_value_batch, new_actor_output_batch,
+                       agent_actions_batch, execution_masks_batch)

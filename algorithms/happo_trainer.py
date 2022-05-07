@@ -47,8 +47,7 @@ class HAPPO():
         else:
             self.value_normalizer = None
 
-    def cal_value_loss(self, values, value_preds_batch, return_batch,
-                       active_masks_batch):
+    def cal_value_loss(self, values, value_preds_batch, return_batch, active_masks_batch):
         """
         Calculate value function loss.
         :param values: (torch.Tensor) value function predictions.
@@ -59,16 +58,13 @@ class HAPPO():
         :return value_loss: (torch.Tensor) value function loss.
         """
         if self._use_popart:
-            value_pred_clipped = value_preds_batch + (
-                values - value_preds_batch).clamp(-self.clip_param,
-                                                  self.clip_param)
-            error_clipped = self.value_normalizer(
-                return_batch) - value_pred_clipped
+            value_pred_clipped = value_preds_batch + (values - value_preds_batch).clamp(
+                -self.clip_param, self.clip_param)
+            error_clipped = self.value_normalizer(return_batch) - value_pred_clipped
             error_original = self.value_normalizer(return_batch) - values
         else:
-            value_pred_clipped = value_preds_batch + (
-                values - value_preds_batch).clamp(-self.clip_param,
-                                                  self.clip_param)
+            value_pred_clipped = value_preds_batch + (values - value_preds_batch).clamp(
+                -self.clip_param, self.clip_param)
             error_clipped = return_batch - value_pred_clipped
             error_original = return_batch - values
 
@@ -85,8 +81,7 @@ class HAPPO():
             value_loss = value_loss_original
 
         if self._use_value_active_masks:
-            value_loss = (value_loss *
-                          active_masks_batch).sum() / active_masks_batch.sum()
+            value_loss = (value_loss * active_masks_batch).sum() / active_masks_batch.sum()
         else:
             value_loss = value_loss.mean()
 
@@ -95,56 +90,42 @@ class HAPPO():
     def ppo_update(self, sample, update_actor=True):
         for x in sample:
             if x is not None and not isinstance(x, list):
-                assert isinstance(
-                    x, torch.Tensor) and (x.device == torch.device('cuda:0'))
+                assert isinstance(x, torch.Tensor) and (x.device == torch.device('cuda:0'))
             elif isinstance(x, list) and len(x) > 0:
                 for y in x:
-                    assert isinstance(
-                        y, torch.Tensor) and (y.device
-                                              == torch.device('cuda:0'))
-        (share_obs_batch, obs_batch, rnn_states_batch, rnn_states_critic_batch,
-         actions_batch, value_preds_batch, return_batch, masks_batch,
-         active_masks_batch, old_action_log_probs_batch, adv_targ,
-         available_actions_batch, factor_batch, distill_value_targets,
-         distill_actor_output_targets) = sample
+                    assert isinstance(y, torch.Tensor) and (y.device == torch.device('cuda:0'))
+        (share_obs_batch, obs_batch, rnn_states_batch, rnn_states_critic_batch, actions_batch, value_preds_batch,
+         return_batch, masks_batch, active_masks_batch, old_action_log_probs_batch, adv_targ, available_actions_batch,
+         factor_batch, distill_value_targets, distill_actor_output_targets, agent_actions_batch,
+         execution_masks_batch) = sample
 
         # Reshape to do in a single forward pass for all steps
         values, action_log_probs, dist_entropy, actor_output = self.policy.evaluate_actions(
-            share_obs_batch, obs_batch, rnn_states_batch,
-            rnn_states_critic_batch, actions_batch, masks_batch,
-            available_actions_batch, active_masks_batch)
+            share_obs_batch,
+            obs_batch,
+            rnn_states_batch,
+            rnn_states_critic_batch,
+            actions_batch,
+            masks_batch,
+            available_actions_batch,
+            active_masks_batch,
+            agent_actions=agent_actions_batch,
+            execution_masks=execution_masks_batch)
         # actor update
         imp_weights = torch.exp(action_log_probs - old_action_log_probs_batch)
 
         surr1 = imp_weights * adv_targ
-        surr2 = torch.clamp(imp_weights, 1.0 - self.clip_param,
-                            1.0 + self.clip_param) * adv_targ
+        surr2 = torch.clamp(imp_weights, 1.0 - self.clip_param, 1.0 + self.clip_param) * adv_targ
 
         if self._use_policy_active_masks:
-            policy_action_loss = (-torch.sum(
-                factor_batch * torch.min(surr1, surr2), dim=-1, keepdim=True) *
-                                  active_masks_batch
-                                  ).sum() / active_masks_batch.sum()
+            policy_action_loss = (-torch.sum(factor_batch * torch.min(surr1, surr2), dim=-1, keepdim=True) *
+                                  active_masks_batch).sum() / active_masks_batch.sum()
         else:
-            policy_action_loss = -torch.sum(
-                factor_batch * torch.min(surr1, surr2), dim=-1,
-                keepdim=True).mean()
+            policy_action_loss = -torch.sum(factor_batch * torch.min(surr1, surr2), dim=-1, keepdim=True).mean()
 
         policy_loss = policy_action_loss - dist_entropy * self.entropy_coef
 
-        value_loss = self.cal_value_loss(values, value_preds_batch,
-                                         return_batch, active_masks_batch)
-
-        for d_vt in distill_value_targets:
-            assert self.share_policy
-            assert d_vt.shape[-1] == 1
-            value_loss += self.critic_distill_coef * ((d_vt - values)**2).mean()
-
-        for d_at in distill_actor_output_targets:
-            assert self.share_policy
-            assert d_at.shape[-1] == actor_output.shape[-1]
-            policy_loss += self.actor_distill_coef * (
-                (d_at - actor_output)**2).mean()
+        value_loss = self.cal_value_loss(values, value_preds_batch, return_batch, active_masks_batch)
 
         self.policy.actor_optimizer.zero_grad()
 
@@ -152,8 +133,7 @@ class HAPPO():
             policy_loss.backward()
 
         if self._use_max_grad_norm:
-            actor_grad_norm = nn.utils.clip_grad_norm_(
-                self.policy.actor.parameters(), self.max_grad_norm)
+            actor_grad_norm = nn.utils.clip_grad_norm_(self.policy.actor.parameters(), self.max_grad_norm)
         else:
             actor_grad_norm = get_gard_norm(self.policy.actor.parameters())
 
@@ -164,25 +144,49 @@ class HAPPO():
         (value_loss * self.value_loss_coef).backward()
 
         if self._use_max_grad_norm:
-            critic_grad_norm = nn.utils.clip_grad_norm_(
-                self.policy.critic.parameters(), self.max_grad_norm)
+            critic_grad_norm = nn.utils.clip_grad_norm_(self.policy.critic.parameters(), self.max_grad_norm)
         else:
             critic_grad_norm = get_gard_norm(self.policy.critic.parameters())
 
         self.policy.critic_optimizer.step()
 
+        if self.critic_distill_coef > 0 and len(distill_value_targets) > 0:
+            distill_v_loss = 0
+            self.policy.distill_critic_optimizer.zero_grad()
+            v = self.policy.get_values(share_obs_batch, rnn_states_critic_batch, masks_batch)
+            for d_vt in distill_value_targets:
+                assert self.share_policy
+                assert d_vt.shape[-1] == 1
+                distill_v_loss += self.critic_distill_coef * ((d_vt - v)**2).mean()
+            distill_v_loss.backward()
+            self.policy.distill_critic_optimizer.step()
+
+        if self.actor_distill_coef > 0 and len(distill_actor_output_targets) > 0:
+            distill_pi_loss = 0
+            self.policy.distill_actor_optimizer.zero_grad()
+            _, _, a = self.policy.actor.evaluate_actions(obs_batch,
+                                                         rnn_states_batch,
+                                                         actions_batch,
+                                                         masks_batch,
+                                                         available_actions_batch,
+                                                         active_masks_batch,
+                                                         agent_actions=agent_actions_batch,
+                                                         execution_masks=execution_masks_batch)
+            for d_at in distill_actor_output_targets:
+                assert self.share_policy
+                assert d_at.shape[-1] == actor_output.shape[-1]
+                distill_pi_loss += self.actor_distill_coef * ((d_at - a)**2).mean()
+            distill_pi_loss.backward()
+            self.policy.distill_actor_optimizer.step()
+
         return value_loss, critic_grad_norm, policy_loss, dist_entropy, actor_grad_norm, imp_weights
 
     def _generate_adv(self, agent_id, buffer):
         if self._use_popart:
-            advantages = buffer.returns[:-1, :,
-                                        agent_id] - self.value_normalizer.denormalize(
-                                            buffer.value_preds[:-1, :,
-                                                               agent_id])
+            advantages = buffer.returns[:-1, :, agent_id] - self.value_normalizer.denormalize(
+                buffer.value_preds[:-1, :, agent_id])
         else:
-            advantages = buffer.returns[:-1, :,
-                                        agent_id] - buffer.value_preds[:-1, :,
-                                                                       agent_id]
+            advantages = buffer.returns[:-1, :, agent_id] - buffer.value_preds[:-1, :, agent_id]
 
         x = advantages.clone()
         dim = tuple(range(len(x.shape)))
@@ -197,12 +201,7 @@ class HAPPO():
         # var *= factor / (factor - 1)
         return (x - mean) / (var.sqrt() + 1e-5)
 
-    def train(self,
-              agent_id,
-              buffer,
-              distill_value_targets,
-              distill_actor_output_targets,
-              update_actor=True):
+    def train(self, agent_id, buffer, distill_value_targets, distill_actor_output_targets, update_actor=True):
         advantages = self._generate_adv(agent_id, buffer)
 
         train_info = {}
@@ -235,10 +234,8 @@ class HAPPO():
                 )
 
             for sample in data_generator:
-                (value_loss, critic_grad_norm, policy_loss, dist_entropy,
-                 actor_grad_norm,
-                 imp_weights) = self.ppo_update(sample,
-                                                update_actor=update_actor)
+                (value_loss, critic_grad_norm, policy_loss, dist_entropy, actor_grad_norm,
+                 imp_weights) = self.ppo_update(sample, update_actor=update_actor)
 
                 train_info['value_loss'] += value_loss.item()
                 train_info['policy_loss'] += policy_loss.item()

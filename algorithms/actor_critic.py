@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from algorithms.utils.util import init, check
 from algorithms.utils.cnn import CNNBase
 from algorithms.utils.mlp import MLPBase
@@ -35,7 +36,9 @@ class Actor(nn.Module):
 
         obs_shape = get_shape_from_obs_space(obs_space)
         base = CNNBase if len(obs_shape) == 3 else MLPBase
-        self.base = base(args, obs_shape)
+        self.autoregressive = args.autoregressive
+        self.act_dim = action_space.n
+        self.base = base(args, obs_shape, act_dim=action_space.n if self.autoregressive else None)
 
         if self._use_naive_recurrent_policy or self._use_recurrent_policy:
             self.rnn = RNNLayer(self.hidden_size, self.hidden_size,
@@ -47,13 +50,26 @@ class Actor(nn.Module):
         self.to(device)
 
     def forward(self,
-                obs,
+                obs,  # [T, bs, obs_dim]
                 rnn_states,
                 masks,
                 available_actions=None,
+                agent_actions=None,  # [bs, n_agents, 1]
+                execution_masks=None,  # [bs, n_agents]
                 deterministic=False):
+        if self.autoregressive:
+            assert agent_actions.shape[-2:] == (self.args.num_agents, 1)
+            assert execution_masks.shape[-1] == self.args.num_agents
+            assert len(agent_actions.shape) == 3
+            assert len(execution_masks.shape) == 2
+            agent_actions = agent_actions.squeeze(-1) * execution_masks
+            agent_actions = F.one_hot(agent_actions.long(), self.act_dim).float()
+            agent_actions = agent_actions.flatten(start_dim=-2, end_dim=-1)
+            assert agent_actions.shape[-1] == self.args.num_agents * self.act_dim
+        else:
+            agent_actions = None
 
-        actor_features = self.base(obs)
+        actor_features = self.base(obs, agent_actions)
 
         if self._use_naive_recurrent_policy or self._use_recurrent_policy:
             actor_features, rnn_states = self.rnn(actor_features, rnn_states,
@@ -70,8 +86,22 @@ class Actor(nn.Module):
                          action,
                          masks,
                          available_actions=None,
-                         active_masks=None):
-        actor_features = self.base(obs)
+                         active_masks=None,
+                         agent_actions=None,
+                         execution_masks=None):
+        if self.autoregressive:
+            assert agent_actions.shape[-2:] == (self.args.num_agents, 1)
+            assert execution_masks.shape[-1] == self.args.num_agents
+            assert len(agent_actions.shape) == 3
+            assert len(execution_masks.shape) == 2
+            agent_actions = agent_actions.squeeze(-1) * execution_masks
+            agent_actions = F.one_hot(agent_actions.long(), self.act_dim).float()
+            agent_actions = agent_actions.flatten(start_dim=-2, end_dim=-1)
+            assert agent_actions.shape[-1] == self.args.num_agents * self.act_dim
+        else:
+            agent_actions = None
+
+        actor_features = self.base(obs, agent_actions)
 
         if self._use_naive_recurrent_policy or self._use_recurrent_policy:
             actor_features, rnn_states = self.rnn(actor_features, rnn_states,

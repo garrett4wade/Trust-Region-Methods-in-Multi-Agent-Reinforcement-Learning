@@ -14,12 +14,7 @@ class HAPPO_Policy:
     :param device: (torch.device) specifies the device to run on (cpu/gpu).
     """
 
-    def __init__(self,
-                 args,
-                 obs_space,
-                 cent_obs_space,
-                 act_space,
-                 device=torch.device("cpu")):
+    def __init__(self, args, obs_space, cent_obs_space, act_space, device=torch.device("cpu")):
         self.args = args
         self.device = device
         self.lr = args.lr
@@ -44,11 +39,19 @@ class HAPPO_Policy:
                                                 lr=self.lr,
                                                 eps=self.opti_eps,
                                                 weight_decay=self.weight_decay)
-        self.critic_optimizer = torch.optim.Adam(
-            self.critic.parameters(),
-            lr=self.critic_lr,
-            eps=self.opti_eps,
-            weight_decay=self.weight_decay)
+        self.critic_optimizer = torch.optim.Adam(self.critic.parameters(),
+                                                 lr=self.critic_lr,
+                                                 eps=self.opti_eps,
+                                                 weight_decay=self.weight_decay)
+        if self.args.share_policy:
+            self.distill_actor_optimizer = torch.optim.Adam(self.actor.parameters(),
+                                                            lr=self.lr,
+                                                            eps=self.opti_eps,
+                                                            weight_decay=self.weight_decay)
+            self.distill_critic_optimizer = torch.optim.Adam(self.critic.parameters(),
+                                                             lr=self.critic_lr,
+                                                             eps=self.opti_eps,
+                                                             weight_decay=self.weight_decay)
 
     def lr_decay(self, episode, episodes):
         """
@@ -56,10 +59,8 @@ class HAPPO_Policy:
         :param episode: (int) current training episode.
         :param episodes: (int) total number of training episodes.
         """
-        update_linear_schedule(self.actor_optimizer, episode, episodes,
-                               self.lr)
-        update_linear_schedule(self.critic_optimizer, episode, episodes,
-                               self.critic_lr)
+        update_linear_schedule(self.actor_optimizer, episode, episodes, self.lr)
+        update_linear_schedule(self.critic_optimizer, episode, episodes, self.critic_lr)
 
     def get_actions(self,
                     cent_obs,
@@ -68,6 +69,8 @@ class HAPPO_Policy:
                     rnn_states_critic,
                     masks,
                     available_actions=None,
+                    agent_actions=None,
+                    execution_masks=None,
                     deterministic=False):
         """
         Compute actions and value function predictions for the given inputs.
@@ -86,11 +89,15 @@ class HAPPO_Policy:
         :return rnn_states_actor: (torch.Tensor) updated actor network RNN states.
         :return rnn_states_critic: (torch.Tensor) updated critic network RNN states.
         """
-        actions, action_log_probs, rnn_states_actor = self.actor(
-            obs, rnn_states_actor, masks, available_actions, deterministic)
+        actions, action_log_probs, rnn_states_actor = self.actor(obs,
+                                                                 rnn_states_actor,
+                                                                 masks,
+                                                                 available_actions,
+                                                                 agent_actions=agent_actions,
+                                                                 execution_masks=execution_masks,
+                                                                 deterministic=deterministic)
 
-        values, rnn_states_critic = self.critic(cent_obs, rnn_states_critic,
-                                                masks)
+        values, rnn_states_critic = self.critic(cent_obs, rnn_states_critic, masks)
         return values, actions, action_log_probs, rnn_states_actor, rnn_states_critic
 
     def get_values(self, cent_obs, rnn_states_critic, masks):
@@ -113,7 +120,9 @@ class HAPPO_Policy:
                          action,
                          masks,
                          available_actions=None,
-                         active_masks=None):
+                         active_masks=None,
+                         agent_actions=None,
+                         execution_masks=None):
         """
         Get action logprobs / entropy and value function predictions for actor update.
         :param cent_obs (np.ndarray): centralized input to the critic.
@@ -131,9 +140,14 @@ class HAPPO_Policy:
         :return dist_entropy: (torch.Tensor) action distribution entropy for the given inputs.
         """
 
-        action_log_probs, dist_entropy, actor_output = self.actor.evaluate_actions(
-            obs, rnn_states_actor, action, masks, available_actions,
-            active_masks)
+        action_log_probs, dist_entropy, actor_output = self.actor.evaluate_actions(obs,
+                                                                                   rnn_states_actor,
+                                                                                   action,
+                                                                                   masks,
+                                                                                   available_actions,
+                                                                                   active_masks,
+                                                                                   agent_actions=agent_actions,
+                                                                                   execution_masks=execution_masks)
 
         values, _ = self.critic(cent_obs, rnn_states_critic, masks)
         return values, action_log_probs, dist_entropy, actor_output
@@ -143,6 +157,8 @@ class HAPPO_Policy:
             rnn_states_actor,
             masks,
             available_actions=None,
+            agent_actions=None,
+            execution_masks=None,
             deterministic=False):
         """
         Compute actions using the given inputs.
@@ -153,7 +169,13 @@ class HAPPO_Policy:
                                   (if None, all actions available)
         :param deterministic: (bool) whether the action should be mode of distribution or should be sampled.
         """
-        actions, _, rnn_states_actor = self.actor(obs, rnn_states_actor, masks,
-                                                  available_actions,
-                                                  deterministic)
+        actions, _, rnn_states_actor = self.actor(
+            obs,
+            rnn_states_actor,
+            masks,
+            available_actions,
+            agent_actions=agent_actions,
+            execution_masks=execution_masks,
+            deterministic=deterministic,
+        )
         return actions, rnn_states_actor
