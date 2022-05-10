@@ -335,7 +335,13 @@ class StarCraft2Env(MultiAgentEnv):
 
         # Setting up the interface
         interface_options = sc_pb.InterfaceOptions(raw=True, score=False)
-        self._sc2_proc = self._run_config.start(window_size=self.window_size, want_rgb=False)
+        launch_success = False
+        while not launch_success:
+            try:
+                self._sc2_proc = self._run_config.start(window_size=self.window_size, want_rgb=False)
+                launch_success = True
+            except:
+                pass
         self._controller = self._sc2_proc.controller
 
         # Request to create the game
