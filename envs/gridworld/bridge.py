@@ -446,7 +446,7 @@ class BridgeEnvironment:
             for _ in range(self.num_agents)
         ], np.ones((self.num_agents, ACT_DIM), dtype=np.uint8))
 
-    def render(self):
+    def render(self, mode=None):
         if not self.__initiated_render:
             plt.ion()
             plt.show()

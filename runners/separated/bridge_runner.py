@@ -231,24 +231,26 @@ class BridgeRunner(Runner):
                     self.writter.add_scalars(agent_k, {agent_k: v}, total_num_steps)
 
     @torch.no_grad()
-    def eval(self, total_num_steps):
+    def eval(self, total_num_steps, render=False):
+        bs = self.all_args.n_eval_rollout_threads if not render else self.all_args.n_render_rollout_threads
+        target_episodes = self.all_args.render_episodes if render else self.all_args.eval_episodes
 
         def to_tensor(x):
             return torch.from_numpy(np.array(x)).to(dtype=torch.float32, device=self.device)
 
         eval_episode = 0
         eval_episode_rewards = []
-        running_rewards = torch.zeros(self.n_eval_rollout_threads, device=self.device, dtype=torch.float32)
+        running_rewards = torch.zeros(bs, device=self.device, dtype=torch.float32)
 
         (eval_obs, eval_share_obs, eval_available_actions) = map(to_tensor, self.eval_envs.reset())
+        if render:
+            self.eval_envs.render()
+            time.sleep(0.05)
 
-        eval_rnn_states = torch.zeros(
-            (self.n_eval_rollout_threads, self.num_agents, self.recurrent_N, self.hidden_size),
-            dtype=torch.float32,
-            device=self.device)
-        eval_masks = torch.ones((self.n_eval_rollout_threads, self.num_agents, 1),
-                                dtype=torch.float32,
-                                device=self.device)
+        eval_rnn_states = torch.zeros((bs, self.num_agents, self.recurrent_N, self.hidden_size),
+                                      dtype=torch.float32,
+                                      device=self.device)
+        eval_masks = torch.ones((bs, self.num_agents, 1), dtype=torch.float32, device=self.device)
         while True:
             if self.share_policy and not self.autoregressive:
                 trainer = self.trainer
@@ -257,9 +259,8 @@ class BridgeRunner(Runner):
                                                                    eval_masks.flatten(end_dim=1),
                                                                    eval_available_actions.flatten(end_dim=1),
                                                                    deterministic=True)
-                eval_actions = eval_actions.view(self.n_eval_rollout_threads, self.num_agents, *eval_actions.shape[1:])
-                eval_rnn_states = eval_rnn_states.view(self.n_eval_rollout_threads, self.num_agents,
-                                                       *eval_rnn_states.shape[1:])
+                eval_actions = eval_actions.view(bs, self.num_agents, *eval_actions.shape[1:])
+                eval_rnn_states = eval_rnn_states.view(bs, self.num_agents, *eval_rnn_states.shape[1:])
             elif not self.share_policy and not self.autoregressive:
                 eval_actions_collector = []
                 for agent_id in range(self.num_agents):
@@ -274,12 +275,8 @@ class BridgeRunner(Runner):
                     eval_actions_collector.append(eval_actions)
                 eval_actions = torch.stack(eval_actions_collector, 1)
             else:
-                actions = torch.zeros((self.n_eval_rollout_threads, self.num_agents, 1),
-                                      dtype=torch.float32,
-                                      device=self.device)
-                execution_masks = torch.zeros((self.n_eval_rollout_threads, self.num_agents),
-                                              dtype=torch.float32,
-                                              device=self.device)
+                actions = torch.zeros((bs, self.num_agents, 1), dtype=torch.float32, device=self.device)
+                execution_masks = torch.zeros((bs, self.num_agents), dtype=torch.float32, device=self.device)
                 for agent_id in range(self.num_agents):
                     trainer = self.trainer[agent_id] if not self.share_policy else self.trainer
                     trainer.prep_rollout()
@@ -302,19 +299,23 @@ class BridgeRunner(Runner):
              eval_available_actions) = map(to_tensor,
                                            (eval_obs, eval_share_obs, eval_rewards, eval_dones, eval_available_actions))
             running_rewards += eval_rewards.squeeze(-1).mean(-1)
+            if render:
+                self.eval_envs.render()
+                time.sleep(0.05)
 
             eval_dones_env = eval_dones.all(1)
 
             eval_masks[:] = 1 - eval_dones.unsqueeze(-1).all(1, keepdim=True).float()
 
-            for eval_i in range(self.n_eval_rollout_threads):
+            for eval_i in range(bs):
                 if eval_dones_env[eval_i]:
                     eval_episode += 1
                     eval_episode_rewards.append(running_rewards[eval_i].item())
 
-            if eval_episode >= self.all_args.eval_episodes:
+            if eval_episode >= target_episodes:
                 eval_episode_rewards = np.array(eval_episode_rewards, dtype=np.float32)
                 eval_env_infos = {'eval_average_episode_rewards': eval_episode_rewards}
                 print(f'eval_average_episode_rewards: {np.mean(eval_episode_rewards)}')
-                self.log_env(eval_env_infos, total_num_steps)
+                if not render:
+                    self.log_env(eval_env_infos, total_num_steps)
                 break

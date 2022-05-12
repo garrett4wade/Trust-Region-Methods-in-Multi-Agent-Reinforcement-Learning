@@ -155,7 +155,10 @@ def main(args):
     }
     # run experiments
     runner = Runner(config)
-    runner.run()
+    if all_args.use_render:
+        runner.eval(0, render=True)
+    else:
+        runner.run()
 
     # post process
     envs.close()
@@ -165,8 +168,9 @@ def main(args):
     if all_args.use_wandb:
         run.finish()
     else:
-        runner.writter.export_scalars_to_json(str(runner.log_dir + '/summary.json'))
-        runner.writter.close()
+        if not all_args.use_render:
+            runner.writter.export_scalars_to_json(str(runner.log_dir + '/summary.json'))
+            runner.writter.close()
 
 
 if __name__ == "__main__":
