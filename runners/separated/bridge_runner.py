@@ -69,6 +69,8 @@ class BridgeRunner(Runner):
                     self.all_args.env_name, self.algorithm_name, self.experiment_name, episode, episodes,
                     total_num_steps, self.num_env_steps, int(total_num_steps / (end - start))))
 
+                print(f"Average episode reward: {self.buffer.rewards.mean() * self.all_args.episode_length}")
+
                 assert self.env_name == "bridge"
                 self.log_train(train_infos, total_num_steps)
 

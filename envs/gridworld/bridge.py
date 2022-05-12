@@ -412,7 +412,9 @@ class BridgeEnvironment:
                 #         r += 0.1
                 # else:
                 #     raise NotImplementedError
+
                 rwds[i] += -np.linalg.norm(agent.goal - agent.state) * 0.01
+                # rwds[i] += (agent.goal == agent.state).all()
                 if self.use_image_obs:
                     obs = self._set_image_obs(agent)
                 else:
