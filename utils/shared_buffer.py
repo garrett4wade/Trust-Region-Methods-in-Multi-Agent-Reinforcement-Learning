@@ -315,7 +315,7 @@ class SharedReplayBuffer(object):
 
             if self.autoregressive:
                 agent_actions_batch = agent_actions[indices]
-                execution_masks_batch = execution_masks_batch[indices]
+                execution_masks_batch = execution_masks[indices]
             else:
                 agent_actions_batch = execution_masks_batch = None
 
