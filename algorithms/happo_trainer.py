@@ -24,6 +24,8 @@ class HAPPO():
         self.tpdv = dict(dtype=torch.float32, device=device)
         self.policy = policy
 
+        self.no_factor = args.no_factor
+
         self.clip_param = args.clip_param
         self.ppo_epoch = args.ppo_epoch
         self.num_mini_batch = args.num_mini_batch
@@ -98,6 +100,9 @@ class HAPPO():
          return_batch, masks_batch, active_masks_batch, old_action_log_probs_batch, adv_targ, available_actions_batch,
          factor_batch, distill_value_targets, distill_actor_output_targets, agent_actions_batch,
          execution_masks_batch) = sample
+
+        if self.no_factor:
+            factor_batch = 1
 
         # Reshape to do in a single forward pass for all steps
         values, action_log_probs, dist_entropy, actor_output = self.policy.evaluate_actions(

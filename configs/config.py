@@ -170,6 +170,8 @@ def get_config():
     parser.add_argument("--critic_distill_coef", type=float, default=1.0)
     parser.add_argument("--sample_reuse", type=int, default=1)
     parser.add_argument("--autoregressive", action='store_true')
+    parser.add_argument("--no_factor", action='store_true')
+    parser.add_argument("--random_order", action='store_true')
 
     # prepare parameters
     parser.add_argument("--algorithm_name",

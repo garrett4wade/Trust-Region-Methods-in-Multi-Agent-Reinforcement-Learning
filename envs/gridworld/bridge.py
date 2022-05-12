@@ -74,7 +74,8 @@ ACTION = {
     1: np.array([-1, 0]),  # left
     2: np.array([1, 0]),  # right
     3: np.array([0, 1]),  # up
-    4: np.array([0, -1])  # down
+    4:
+        np.array([0, -1])  # down
 }
 ACTION180 = {
     0: 0,  # stay
@@ -85,14 +86,8 @@ ACTION180 = {
 }
 ACT_DIM = 5
 MAP_COLOR = {'A': np.array([255, 255, 255]), 'B': np.array([0, 0, 0])}
-AGENT_COLOR = {
-    0: np.array([255, 0, 0], dtype=np.uint8),
-    1: np.array([0, 0, 255], dtype=np.uint8)
-}
-GOAL_COLOR = {
-    0: np.array([128, 0, 0], dtype=np.uint8),
-    1: np.array([0, 0, 128], dtype=np.uint8)
-}
+AGENT_COLOR = {0: np.array([255, 0, 0], dtype=np.uint8), 1: np.array([0, 0, 255], dtype=np.uint8)}
+GOAL_COLOR = {0: np.array([128, 0, 0], dtype=np.uint8), 1: np.array([0, 0, 128], dtype=np.uint8)}
 VIEW_LEN = 2  # 5  in total
 
 
@@ -123,51 +118,44 @@ class BridgeEnvironment:
         episode_length=50,
         use_image_obs=False,
         use_image_act=False,
-        use_clean_shareobs=False,
-        use_agent_id=False,
+        use_agent_id=True,
         use_ally_id=False,
-        share_reward=False,
+        share_reward=True,
     ):
         self.string_map = MAPS[map_type]
         self.num_random_blocks = num_random_blocks
-        self.map_maxr, self.map_maxc = len(self.string_map), len(
-            self.string_map[0])
-        self.map_center = np.array([self.map_maxr - 1, self.map_maxc - 1],
-                                   dtype=np.float32) / 2
+        self.map_maxr, self.map_maxc = len(self.string_map), len(self.string_map[0])
+        self.map_size = np.array([self.map_maxr, self.map_maxc], dtype=np.float32)
+        self.map_center = np.array([self.map_maxr - 1, self.map_maxc - 1], dtype=np.float32) / 2
         # self.channel_w, self.channel_h = CHANNELS[map_type]
         self.starts, self.blocks = {i + 1: [] for i in range(num_groups)}, []
-        self.color_map = np.ones(
-            (3, self.map_maxr, self.map_maxc), dtype=np.uint8) * 255
+        self.color_map = np.ones((3, self.map_maxr, self.map_maxc), dtype=np.uint8) * 255
         self.waiting_blocks = []
         for r in range(self.map_maxr):
             for c in range(self.map_maxc):
                 char = self.string_map[r][c]
-                if char == 'B': self.blocks.append(np.array([r, c]))
+                if char == 'B':
+                    self.blocks.append(np.array([r, c]))
                 elif '1' <= char <= '9':
                     if int(char) in self.starts.keys():
                         self.starts[int(char)].append(np.array([r, c]))
                 elif char == 'R':
                     self.waiting_blocks.append(np.array([r, c]))
         self.__share_reward = share_reward
-        self.num_agents = num_agents
+        self.num_agents = self.n_agents = num_agents
         self.num_groups = num_groups
         self.use_image_obs = use_image_obs
 
         self.agents = [
-            Agent(idx=i,
-                  group_idx=1 + i // (self.num_agents // self.num_groups))
-            for i in range(self.num_agents)
+            Agent(idx=i, group_idx=1 + i // (self.num_agents // self.num_groups)) for i in range(self.num_agents)
         ]
         assert self.num_agents % self.num_groups == 0
-        self.n_agents_per_group = n_agents_per_group = len(
-            self.agents) // self.num_groups
+        self.n_agents_per_group = n_agents_per_group = len(self.agents) // self.num_groups
         self.grouped_agents = [
-            self.agents[i * n_agents_per_group:(i + 1) * n_agents_per_group]
-            for i in range(self.num_groups)
+            self.agents[i * n_agents_per_group:(i + 1) * n_agents_per_group] for i in range(self.num_groups)
         ]
         self.episode_length = episode_length
         self.image_act = use_image_act
-        self.clean_shareobs = use_clean_shareobs
 
         self.current_step = 0
         self.__episode_length = np.zeros(1, dtype=np.float32)
@@ -182,23 +170,17 @@ class BridgeEnvironment:
         if use_ally_id:
             self.__obs_dim += (self.num_agents - 1) * self.num_agents
 
-        self.action_space = [
-            gym.spaces.Discrete(ACT_DIM) for _ in range(self.num_agents)
-        ]
+        self.action_space = [gym.spaces.Discrete(ACT_DIM) for _ in range(self.num_agents)]
         self.observation_space = self.share_observation_space = [
-            gym.spaces.Box(low=-np.inf, high=np.inf, shape=(self.__obs_dim, ))
-            for _ in range(self.num_agents)
+            gym.spaces.Box(low=-np.inf, high=np.inf, shape=(self.__obs_dim,)) for _ in range(self.num_agents)
         ]
 
         self.__agent_specific_obs = agent_specific_obs
         if self.__agent_specific_obs:
             self.__obs_space = {
-                'obs_self':
-                (4 if not self.__use_agent_id else 4 + self.num_agents, ),
-                'obs_allies':
-                (self.num_agents - 1,
-                 2 if not self.__use_ally_id else 2 + self.num_agents),
-                'obs_mask': (self.num_agents, ),
+                'obs_self': (4 if not self.__use_agent_id else 4 + self.num_agents,),
+                'obs_allies': (self.num_agents - 1, 2 if not self.__use_ally_id else 2 + self.num_agents),
+                'obs_mask': (self.num_agents,),
             }
 
         self.__initiated_render = False
@@ -227,8 +209,7 @@ class BridgeEnvironment:
                 waiting_block_cols.append(col)
                 self.random_blocks.append(self.waiting_blocks[idx])
         # self.random_blocks = [np.array([4,6]), np.array([5,10])]
-        self.total_blocks = [list(i) for i in self.blocks
-                             ] + [list(i) for i in self.random_blocks]
+        self.total_blocks = [list(i) for i in self.blocks] + [list(i) for i in self.random_blocks]
         for (r, c) in self.total_blocks:
             self.color_map[:, r, c] = MAP_COLOR['B']
 
@@ -236,19 +217,13 @@ class BridgeEnvironment:
             agent.max_history_c = 0
         # print (group_goal_id, group_state_id)
         for group_idx in range(self.num_groups):
-            indices = np.random.choice(len(self.starts[group_idx + 1]),
-                                       self.n_agents_per_group,
-                                       replace=False)
+            indices = np.random.choice(len(self.starts[group_idx + 1]), self.n_agents_per_group, replace=False)
             start_states = [self.starts[group_idx + 1][i] for i in indices]
 
-            indices = np.random.choice(len(
-                self.starts[(group_idx + 1) % self.num_groups + 1]),
+            indices = np.random.choice(len(self.starts[(group_idx + 1) % self.num_groups + 1]),
                                        self.n_agents_per_group,
                                        replace=False)
-            goal_states = [
-                self.starts[(group_idx + 1) % self.num_groups + 1][i]
-                for i in indices
-            ]
+            goal_states = [self.starts[(group_idx + 1) % self.num_groups + 1][i] for i in indices]
 
             for j, (start, goal) in enumerate(zip(start_states, goal_states)):
                 agent = self.grouped_agents[group_idx][j]
@@ -257,10 +232,8 @@ class BridgeEnvironment:
                 agent.goal = goal.copy()
                 agent.done = False
 
-                self.color_map[:, start[0],
-                               start[1]] = AGENT_COLOR[agent.group_idx - 1]
-                self.color_map[:, goal[0],
-                               goal[1]] = GOAL_COLOR[agent.group_idx - 1]
+                self.color_map[:, start[0], start[1]] = AGENT_COLOR[agent.group_idx - 1]
+                self.color_map[:, goal[0], goal[1]] = GOAL_COLOR[agent.group_idx - 1]
 
         obs_n = []
         for agent in self.agents:
@@ -275,19 +248,14 @@ class BridgeEnvironment:
         self.__episode_length[:] = 0
         self.__episode_return[:] = 0
         if self.__agent_specific_obs:
-            obs = np.concatenate([
-                obs,
-                np.ones((self.num_agents, self.num_agents), dtype=np.float32)
-            ], -1)
-            obs = BridgeAgentSpecificObs(
-                **split_to_shapes(obs, self.__obs_space))
+            obs = np.concatenate([obs, np.ones((self.num_agents, self.num_agents), dtype=np.float32)], -1)
+            obs = BridgeAgentSpecificObs(**split_to_shapes(obs, self.__obs_space))
         return obs, obs, np.ones((self.num_agents, ACT_DIM), dtype=np.uint8)
 
     def _collision(self, agent):
         # boundary
-        if agent.nex_state[0] >= self.map_maxr or agent.nex_state[
-                1] >= self.map_maxc or agent.nex_state[
-                    0] < 0 or agent.nex_state[1] < 0:
+        if agent.nex_state[0] >= self.map_maxr or agent.nex_state[1] >= self.map_maxc or agent.nex_state[
+                0] < 0 or agent.nex_state[1] < 0:
             return True
         # wall
         if list(agent.nex_state) in self.total_blocks:
@@ -326,8 +294,7 @@ class BridgeEnvironment:
                     # otherwise can not collide with this agent
                     pass
             else:
-                if (other_agent.state == agent.nex_state).all() and (
-                        other_agent.nex_state == agent.nex_state).all():
+                if (other_agent.state == agent.nex_state).all() and (other_agent.nex_state == agent.nex_state).all():
                     assert other_agent.action == 0
                     self._move_resolved(agent, False)
                     return
@@ -354,50 +321,39 @@ class BridgeEnvironment:
         self._resolve_move(agent)
 
     def _set_state_obs(self, agent):
-        obs_self = [agent.state, agent.goal]
-        obs_others = [
-            other.state for other in self.agents if other is not agent
-        ]
+        obs_self = [agent.state / self.map_size, agent.goal / self.map_size]
+        obs_others = [other.state / self.map_size for other in self.agents if other is not agent]
 
         # symmetric observation
         if self.num_groups == 2:
             if agent.group_idx == 2:
-                tmp = np.array([self.map_maxr - 1, self.map_maxc - 1],
-                               dtype=np.float32)
+                tmp = np.array([self.map_maxr - 1, self.map_maxc - 1], dtype=np.float32) / self.map_size
                 obs_self = list(map(lambda x: tmp - x, obs_self))
                 obs_others = list(map(lambda x: tmp - x, obs_others))
         else:
             raise NotImplementedError
 
         if self.__use_agent_id:
-            obs_self.append(
-                np.eye(self.num_agents)[agent.idx].astype(np.float32))
+            obs_self.append(np.eye(self.num_agents)[agent.idx].astype(np.float32))
         if self.__use_ally_id:
             ally_ids = [
-                np.eye(self.num_agents)[other.idx].astype(np.float32)
-                for other in self.agents if other is not agent
+                np.eye(self.num_agents)[other.idx].astype(np.float32) for other in self.agents if other is not agent
             ]
-            obs_others = [
-                val for pair in zip(obs_others, ally_ids) for val in pair
-            ]
+            obs_others = [val for pair in zip(obs_others, ally_ids) for val in pair]
 
         return np.concatenate(obs_self + obs_others)
 
     def _set_image_obs(self, agent):
         pos_r, pos_c = agent.state[0], agent.state[1]
         obs = np.zeros((3, 2 * VIEW_LEN + 1, 2 * VIEW_LEN + 1), dtype=np.uint8)
-        min_r, max_r = max(0, pos_r - VIEW_LEN), min(pos_r + VIEW_LEN + 1,
-                                                     self.map_maxr)
-        min_c, max_c = max(0, pos_c - VIEW_LEN), min(pos_c + VIEW_LEN + 1,
-                                                     self.map_maxc)
+        min_r, max_r = max(0, pos_r - VIEW_LEN), min(pos_r + VIEW_LEN + 1, self.map_maxr)
+        min_c, max_c = max(0, pos_c - VIEW_LEN), min(pos_c + VIEW_LEN + 1, self.map_maxc)
         loc_r, loc_c = VIEW_LEN - (pos_r - min_r), VIEW_LEN - (pos_c - min_c)
         # c_len, r_len = max_c-min_c, max_r-min_r
         # print (pos_c, pos_r, min_r, max_r, min_c, max_c, loc_r, loc_c)
         # print (obs[:, loc_r:loc_r+max_r-min_r+1, loc_c:loc_c+max_c-min_c+1].shape)
         # print (self.color_map[:, min_r:max_r, min_c:max_c].shape)
-        obs[:, loc_r:loc_r + max_r - min_r,
-            loc_c:loc_c + max_c - min_c] = self.color_map[:, min_r:max_r,
-                                                          min_c:max_c]
+        obs[:, loc_r:loc_r + max_r - min_r, loc_c:loc_c + max_c - min_c] = self.color_map[:, min_r:max_r, min_c:max_c]
         return obs
 
     def step(self, action_n):
@@ -434,12 +390,10 @@ class BridgeEnvironment:
 
         # apply action
         for agent in self.agents:
-            self.color_map[:, agent.state[0],
-                           agent.state[1]] = np.ones(3).astype(np.uint8) * 255
+            self.color_map[:, agent.state[0], agent.state[1]] = np.ones(3).astype(np.uint8) * 255
             agent.state = agent.nex_state.copy()
             agent.nex_state = None
-            self.color_map[:, agent.state[0],
-                           agent.state[1]] = AGENT_COLOR[agent.group_idx - 1]
+            self.color_map[:, agent.state[0], agent.state[1]] = AGENT_COLOR[agent.group_idx - 1]
 
         rwds = np.zeros((self.num_agents, 1), dtype=np.float32)
         obs_n, done_n = [], []
@@ -465,11 +419,9 @@ class BridgeEnvironment:
                     obs = self._set_state_obs(agent)
             else:
                 obs = np.zeros(self.__obs_dim, dtype=np.float32)
-            agent.done = (self.current_step + 1
-                          == self.episode_length) or (agent.goal
-                                                      == agent.state).all()
+            agent.done = (self.current_step + 1 == self.episode_length) or (agent.goal == agent.state).all()
             obs_n.append(obs)
-            done_n.append(np.array([agent.done], dtype=np.uint8))
+            done_n.append(bool(agent.done))
         self.current_step += 1
         self.__episode_length += 1
         if self.__share_reward:
@@ -477,8 +429,7 @@ class BridgeEnvironment:
         self.__episode_return += rwds.sum()
         obs = np.stack(obs_n)
         if self.__agent_specific_obs:
-            obs_mask = np.zeros((self.num_agents, self.num_agents - 1),
-                                dtype=np.float32)
+            obs_mask = np.zeros((self.num_agents, self.num_agents - 1), dtype=np.float32)
             for i, agent in enumerate(self.agents):
                 cnt = 0
                 for other in self.agents:
@@ -486,16 +437,12 @@ class BridgeEnvironment:
                         continue
                     obs_mask[i, cnt] = 1 - other.done
                     cnt += 1
-            obs = np.concatenate([
-                obs,
-                np.ones((self.num_agents, 1), dtype=np.float32), obs_mask
-            ], -1)
-            obs = BridgeAgentSpecificObs(
-                **split_to_shapes(obs, self.__obs_space))
-        return (obs, obs, rwds * (1 - np.stack(done_n)), np.stack(done_n),
-                dict(ep_len=self.__episode_length.item(),
-                     ep_ret=self.__episode_return.item()),
-                np.ones((self.num_agents, ACT_DIM), dtype=np.uint8))
+            obs = np.concatenate([obs, np.ones((self.num_agents, 1), dtype=np.float32), obs_mask], -1)
+            obs = BridgeAgentSpecificObs(**split_to_shapes(obs, self.__obs_space))
+        return (obs, obs, rwds * (1 - np.stack(done_n)[:, None]), np.stack(done_n), [
+            dict(ep_len=self.__episode_length.item(), ep_ret=self.__episode_return.item(), bad_transition=False)
+            for _ in range(self.num_agents)
+        ], np.ones((self.num_agents, ACT_DIM), dtype=np.uint8))
 
     def render(self):
         if not self.__initiated_render:
@@ -510,8 +457,7 @@ class BridgeEnvironment:
             self.__initiated_render = True
 
         # fig = plt.figure('test')
-        img = np.ones(
-            (self.map_maxr, self.map_maxc, 3), dtype=np.uint8) * int(255)
+        img = np.ones((self.map_maxr, self.map_maxc, 3), dtype=np.uint8) * int(255)
         for i, b in enumerate(self.total_blocks):
             img[b[0], b[1], :] = 0
         for a in self.agents:
