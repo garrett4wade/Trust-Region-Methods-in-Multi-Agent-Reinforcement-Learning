@@ -10,6 +10,40 @@ from utils.shared_buffer import SharedReplayBuffer
 from utils.util import update_linear_schedule
 
 
+def generate_mask_from_order(agent_order, ego_exclusive):
+    """Generate execution mask from agent order.
+    Used during autoregressive training.
+    Args:
+        agent_order (torch.Tensor): Agent order of shape [*, n_agents].
+    Returns:
+        torch.Tensor: Execution mask of shape [*, n_agents, n_agents - 1].
+    """
+    shape = agent_order.shape
+    n_agents = shape[-1]
+    agent_order = agent_order.view(-1, n_agents)
+    bs = agent_order.shape[0]
+
+    cur_execution_mask = torch.zeros(bs, n_agents).to(agent_order)
+    all_execution_mask = torch.zeros(bs, n_agents, n_agents).to(agent_order)
+
+    batch_indices = torch.arange(bs)
+    for i in range(n_agents):
+        agent_indices = agent_order[:, i].long()
+
+        cur_execution_mask[batch_indices, agent_indices] = 1
+        all_execution_mask[batch_indices, :, agent_indices] = 1 - cur_execution_mask
+        # all_execution_mask[batch_indices, agent_indices, agent_indices] = 1
+    if not ego_exclusive:
+        # [*, n_agent, n_agents]
+        return all_execution_mask.view(*shape[:-1], n_agents, n_agents)
+    else:
+        # [*, n_agents, n_agents - 1]
+        execution_mask = torch.zeros(bs, n_agents, n_agents - 1).to(agent_order)
+        for i in range(n_agents):
+            execution_mask[:, i] = torch.cat([all_execution_mask[..., i, :i], all_execution_mask[..., i, i + 1:]], -1)
+        return execution_mask.view(*shape[:-1], n_agents, n_agents - 1)
+
+
 def _t2n(x):
     return x.detach().cpu().numpy()
 
@@ -164,6 +198,16 @@ class Runner(object):
             log_factor = torch.zeros_like(self.buffer.factor[:, :, 0])
             distill_value_targets = []
             distill_actor_output_targets = []
+
+            if self.all_args.random_order:
+                agent_order = torch.stack([
+                    torch.randperm(self.all_args.num_agents)
+                    for _ in range(self.all_args.episode_length * self.all_args.n_rollout_threads)
+                ])
+                agent_order = agent_order.view(self.all_args.episode_length, self.all_args.n_rollout_threads,
+                                               self.all_args.num_agents)
+                execution_mask = generate_mask_from_order(agent_order, ego_exclusive=False)
+                self.buffer.execution_masks[:] = execution_mask
 
             # random update order
             for agent_id in torch.randperm(self.num_agents):

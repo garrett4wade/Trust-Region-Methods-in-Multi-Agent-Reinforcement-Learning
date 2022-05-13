@@ -140,18 +140,23 @@ class BridgeRunner(Runner):
             rnn_states = torch.stack(rnn_state_collector, 1)
             rnn_states_critic = torch.stack(rnn_state_critic_collector, 1)
         else:
-            value_collector = []
-            agent_action_collector = []
-            execution_mask_collector = []
+            # if self.all_args.random_order:
+            #     agent_order = torch.randperm(self.num_agents)
+            # else:
+            agent_order = range(self.num_agents)
+            values = torch.zeros_like(self.buffer.value_preds[step])
+            agent_actions = torch.zeros_like(self.buffer.agent_actions[step])
+            all_execution_masks = torch.zeros_like(self.buffer.execution_masks[step])
+            action_log_probs = torch.zeros_like(self.buffer.action_log_probs[step])
+            rnn_states = torch.zeros_like(self.buffer.rnn_states[step])
+            rnn_states_critic = torch.zeros_like(self.buffer.rnn_states_critic[step])
+
             actions = torch.zeros_like(self.buffer.actions[step])
             execution_masks = torch.zeros((self.n_rollout_threads, self.num_agents),
                                           dtype=torch.float32,
                                           device=self.device)
-            action_log_prob_collector = []
-            rnn_state_collector = []
-            rnn_state_critic_collector = []
             # by default we fix order
-            for agent_id in range(self.num_agents):
+            for agent_id in agent_order:
                 trainer = self.trainer[agent_id] if not self.share_policy else self.trainer
                 trainer.prep_rollout()
                 (value, action, action_log_prob, rnn_state, rnn_state_critic) = trainer.policy.get_actions(
@@ -164,21 +169,18 @@ class BridgeRunner(Runner):
                     agent_actions=actions,
                     execution_masks=execution_masks,
                 )
-                agent_action_collector.append(actions.clone())
-                execution_mask_collector.append(execution_masks.clone())
+                agent_actions[:, agent_id] = actions
+                all_execution_masks[:, agent_id] = execution_masks
+
                 actions[:, agent_id] = action
                 execution_masks[:, agent_id] = 1
-                value_collector.append(value)
-                action_log_prob_collector.append(action_log_prob)
-                rnn_state_collector.append(rnn_state)
-                rnn_state_critic_collector.append(rnn_state_critic)
+
+                values[:, agent_id] = value
+                action_log_probs[:, agent_id] = action_log_prob
+                rnn_states[:, agent_id] = rnn_state
+                rnn_states_critic[:, agent_id] = rnn_state_critic
             # [self.envs, agents, dim]
-            values = torch.stack(value_collector, 1)
-            action_log_probs = torch.stack(action_log_prob_collector, 1)
-            rnn_states = torch.stack(rnn_state_collector, 1)
-            rnn_states_critic = torch.stack(rnn_state_critic_collector, 1)
-            agent_actions = torch.stack(agent_action_collector, 1)
-            execution_masks = torch.stack(execution_mask_collector, 1)
+            execution_masks = all_execution_masks
 
         return values, actions, action_log_probs, rnn_states, rnn_states_critic, agent_actions, execution_masks
 
@@ -258,7 +260,7 @@ class BridgeRunner(Runner):
                                                                    eval_rnn_states.flatten(end_dim=1),
                                                                    eval_masks.flatten(end_dim=1),
                                                                    eval_available_actions.flatten(end_dim=1),
-                                                                   deterministic=True)
+                                                                   deterministic=False)
                 eval_actions = eval_actions.view(bs, self.num_agents, *eval_actions.shape[1:])
                 eval_rnn_states = eval_rnn_states.view(bs, self.num_agents, *eval_rnn_states.shape[1:])
             elif not self.share_policy and not self.autoregressive:
@@ -270,7 +272,7 @@ class BridgeRunner(Runner):
                                                                         eval_rnn_states[:, agent_id],
                                                                         eval_masks[:, agent_id],
                                                                         eval_available_actions[:, agent_id],
-                                                                        deterministic=True)
+                                                                        deterministic=False)
                     eval_rnn_states[:, agent_id] = temp_rnn_state
                     eval_actions_collector.append(eval_actions)
                 eval_actions = torch.stack(eval_actions_collector, 1)
@@ -286,7 +288,7 @@ class BridgeRunner(Runner):
                                                                         eval_available_actions[:, agent_id],
                                                                         agent_actions=actions,
                                                                         execution_masks=execution_masks,
-                                                                        deterministic=True)
+                                                                        deterministic=False)
                     eval_rnn_states[:, agent_id] = temp_rnn_state
                     actions[:, agent_id] = eval_actions
                     execution_masks[:, agent_id] = 1
