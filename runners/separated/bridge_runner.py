@@ -4,6 +4,7 @@ import torch
 import wandb
 from runners.separated.base_runner import Runner
 from utils.timing import Timing
+from utils.util import save_frames_as_gif
 
 
 def _t2n(x):
@@ -236,6 +237,7 @@ class BridgeRunner(Runner):
     def eval(self, total_num_steps, render=False):
         bs = self.all_args.n_eval_rollout_threads if not render else self.all_args.n_render_rollout_threads
         target_episodes = self.all_args.render_episodes if render else self.all_args.eval_episodes
+        frames = []
 
         def to_tensor(x):
             return torch.from_numpy(np.array(x)).to(dtype=torch.float32, device=self.device)
@@ -246,7 +248,8 @@ class BridgeRunner(Runner):
 
         (eval_obs, eval_share_obs, eval_available_actions) = map(to_tensor, self.eval_envs.reset())
         if render:
-            self.eval_envs.render()
+            [img] = self.eval_envs.render(mode='rgb_array')
+            frames.append(img)
             time.sleep(0.05)
 
         eval_rnn_states = torch.zeros((bs, self.num_agents, self.recurrent_N, self.hidden_size),
@@ -302,7 +305,8 @@ class BridgeRunner(Runner):
                                            (eval_obs, eval_share_obs, eval_rewards, eval_dones, eval_available_actions))
             running_rewards += eval_rewards.squeeze(-1).mean(-1)
             if render:
-                self.eval_envs.render()
+                [img] = self.eval_envs.render(mode='rgb_array')
+                frames.append(img)
                 time.sleep(0.05)
 
             eval_dones_env = eval_dones.all(1)
@@ -315,6 +319,7 @@ class BridgeRunner(Runner):
                     eval_episode_rewards.append(running_rewards[eval_i].item())
 
             if eval_episode >= target_episodes:
+                save_frames_as_gif(frames, path='/mnt/c/Users/fuwth/Documents/icml22_demos', file_name='bridge.gif')
                 eval_episode_rewards = np.array(eval_episode_rewards, dtype=np.float32)
                 eval_env_infos = {'eval_average_episode_rewards': eval_episode_rewards}
                 print(f'eval_average_episode_rewards: {np.mean(eval_episode_rewards)}')

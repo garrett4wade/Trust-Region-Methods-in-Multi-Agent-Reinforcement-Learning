@@ -172,6 +172,7 @@ def get_config():
     parser.add_argument("--autoregressive", action='store_true')
     parser.add_argument("--no_factor", action='store_true')
     parser.add_argument("--random_order", action='store_true')
+    parser.add_argument("--eval_only", action='store_true')
 
     # prepare parameters
     parser.add_argument("--algorithm_name",

@@ -1,6 +1,9 @@
 import numpy as np
 import math
 import torch
+import os
+from matplotlib import animation
+import matplotlib.pyplot as plt
 
 
 def check(input):
@@ -15,6 +18,18 @@ def get_gard_norm(it):
             continue
         sum_grad += x.grad.norm()**2
     return math.sqrt(sum_grad)
+
+
+def save_frames_as_gif(frames, path=".", file_name='test.gif'):
+    plt.figure(figsize=(frames[0].shape[1], frames[0].shape[0]))
+    patch = plt.imshow(frames[0])
+    plt.axis('off')
+
+    def animate(i):
+        patch.set_data(frames[i])
+
+    anim = animation.FuncAnimation(plt.gcf(), animate, frames=len(frames), interval=10)
+    anim.save(os.path.join(path, file_name), writer='imagemagick')
 
 
 def update_linear_schedule(optimizer, epoch, total_num_epochs, initial_lr):
@@ -72,8 +87,7 @@ def tile_images(img_nhwc):
     N, h, w, c = img_nhwc.shape
     H = int(np.ceil(np.sqrt(N)))
     W = int(np.ceil(float(N) / H))
-    img_nhwc = np.array(
-        list(img_nhwc) + [img_nhwc[0] * 0 for _ in range(N, H * W)])
+    img_nhwc = np.array(list(img_nhwc) + [img_nhwc[0] * 0 for _ in range(N, H * W)])
     img_HWhwc = img_nhwc.reshape(H, W, h, w, c)
     img_HhWwc = img_HWhwc.transpose(0, 2, 1, 3, 4)
     img_Hh_Ww_c = img_HhWwc.reshape(H * h, W * w, c)

@@ -479,7 +479,7 @@ class BridgeEnvironment:
         # img = Image.frombytes("RGBA", (w, h), buf.tostring())
         # img = np.asarray(img)
         # img = img[:, :, :3]
-        # return img
+        return img
 
     def close(self):
         del self.agents

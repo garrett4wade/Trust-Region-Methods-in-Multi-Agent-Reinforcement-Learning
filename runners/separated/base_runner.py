@@ -304,7 +304,7 @@ class Runner(object):
         if self.share_policy:
             actor_state_dict = torch.load(os.path.join(str(self.model_dir), "actor.pt"))
             self.policy.actor.load_state_dict(actor_state_dict)
-            critic_state_dict = torch.load(os.path.joint(str(self.model_dir), "critic.pt"))
+            critic_state_dict = torch.load(os.path.join(str(self.model_dir), "critic.pt"))
             self.policy.critic.load_state_dict(critic_state_dict)
         else:
             for agent_id in range(self.num_agents):
