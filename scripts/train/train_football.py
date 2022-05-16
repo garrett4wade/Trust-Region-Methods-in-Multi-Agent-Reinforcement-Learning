@@ -26,8 +26,7 @@ def make_train_env(all_args):
             env = FootballEnvironment(
                 seed=all_args.seed + rank * 1000,
                 share_reward=all_args.share_reward,
-                number_of_left_players_agent_controls=map_agent_registry[
-                    all_args.map_name][0],
+                number_of_left_players_agent_controls=map_agent_registry[all_args.map_name][0],
                 number_of_right_players_agent_controls=0,
                 rewards="scoring,checkpoints",
                 env_name=all_args.map_name,
@@ -39,8 +38,7 @@ def make_train_env(all_args):
     if all_args.n_rollout_threads == 1:
         return ShareDummyVecEnv([get_env_fn(0)])
     else:
-        return ShareSubprocVecEnv(
-            [get_env_fn(i) for i in range(all_args.n_rollout_threads)])
+        return ShareSubprocVecEnv([get_env_fn(i) for i in range(all_args.n_rollout_threads)])
 
 
 def make_eval_env(all_args):
@@ -52,8 +50,7 @@ def make_eval_env(all_args):
             env = FootballEnvironment(
                 seed=all_args.seed * 50000 + rank * 10000,
                 share_reward=all_args.share_reward,
-                number_of_left_players_agent_controls=map_agent_registry[
-                    all_args.map_name][0],
+                number_of_left_players_agent_controls=map_agent_registry[all_args.map_name][0],
                 number_of_right_players_agent_controls=0,
                 rewards="scoring",
                 env_name=all_args.map_name,
@@ -65,8 +62,7 @@ def make_eval_env(all_args):
     if all_args.n_eval_rollout_threads == 1:
         return ShareDummyVecEnv([get_env_fn(0)])
     else:
-        return ShareSubprocVecEnv(
-            [get_env_fn(i) for i in range(all_args.n_eval_rollout_threads)])
+        return ShareSubprocVecEnv([get_env_fn(i) for i in range(all_args.n_eval_rollout_threads)])
 
 
 def parse_args(args, parser):
@@ -76,9 +72,7 @@ def parse_args(args, parser):
         default='academy_3_vs_1_with_keeper',
     )
     parser.add_argument("--share_reward", action='store_true')
-    parser.add_argument("--use_single_network",
-                        action='store_true',
-                        default=False)
+    parser.add_argument("--use_single_network", action='store_true', default=False)
     all_args = parser.parse_known_args(args)[0]
 
     return all_args
@@ -107,11 +101,9 @@ def main(args):
         device = torch.device("cpu")
         torch.set_num_threads(all_args.n_training_threads)
 
-    run_dir = Path(
-        os.path.split(os.path.dirname(os.path.abspath(__file__)))[0] +
-        "/results"
-    ) / all_args.env_name / all_args.map_name / all_args.algorithm_name / all_args.experiment_name / str(
-        all_args.seed)
+    run_dir = Path(os.path.split(os.path.dirname(os.path.abspath(__file__)))[0] + "/results"
+                  ) / all_args.env_name / all_args.map_name / all_args.algorithm_name / all_args.experiment_name / str(
+                      all_args.seed)
     if not run_dir.exists():
         os.makedirs(str(run_dir))
 
@@ -121,8 +113,7 @@ def main(args):
                          group=all_args.experiment_name,
                          entity=all_args.user_name,
                          notes=socket.gethostname(),
-                         name=str(all_args.algorithm_name) + "_" +
-                         str(all_args.experiment_name) + "_seed" +
+                         name=str(all_args.algorithm_name) + "_" + str(all_args.experiment_name) + "_seed" +
                          str(all_args.seed),
                          dir=str(run_dir),
                          job_type="training",
@@ -145,8 +136,8 @@ def main(args):
             os.makedirs(str(run_dir))
 
     setproctitle.setproctitle(
-        str(all_args.algorithm_name) + "-" + str(all_args.env_name) + "-" +
-        str(all_args.experiment_name) + "@" + str(all_args.user_name))
+        str(all_args.algorithm_name) + "-" + str(all_args.env_name) + "-" + str(all_args.experiment_name) + "@" +
+        str(all_args.user_name))
 
     # seed
     torch.manual_seed(all_args.seed)
@@ -169,7 +160,15 @@ def main(args):
     }
     # run experiments
     runner = Runner(config)
-    runner.run()
+    if not all_args.eval_only and not all_args.use_render:
+        runner.run()
+    else:
+        assert all_args.model_dir is not None
+        if all_args.eval_only:
+            runner.eval(0, render=False)
+        else:
+            assert all_args.n_render_rollout_threads == 1
+            runner.eval(0, render=True)
 
     # post process
     envs.close()
@@ -179,9 +178,9 @@ def main(args):
     if all_args.use_wandb:
         run.finish()
     else:
-        runner.writter.export_scalars_to_json(
-            str(runner.log_dir + '/summary.json'))
-        runner.writter.close()
+        if not all_args.use_render:
+            runner.writter.export_scalars_to_json(str(runner.log_dir + '/summary.json'))
+            runner.writter.close()
 
 
 if __name__ == "__main__":

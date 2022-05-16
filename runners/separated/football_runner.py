@@ -250,7 +250,7 @@ class FootballRunner(Runner):
                     self.writter.add_scalars(agent_k, {agent_k: v}, total_num_steps)
 
     @torch.no_grad()
-    def eval(self, total_num_steps):
+    def eval(self, total_num_steps, render=False):
 
         def to_tensor(x):
             return torch.from_numpy(x).to(self.device)
@@ -259,6 +259,9 @@ class FootballRunner(Runner):
         eval_ret = []
 
         (eval_obs, eval_share_obs, eval_available_actions) = map(to_tensor, self.eval_envs.reset())
+        if render:
+            self.eval_envs.render()
+            time.sleep(0.05)
 
         eval_rnn_states = torch.zeros(
             (self.n_eval_rollout_threads, self.num_agents, self.recurrent_N, self.hidden_size),
@@ -317,6 +320,9 @@ class FootballRunner(Runner):
             # Obser reward and next obs
             (eval_obs, eval_share_obs, eval_rewards, eval_dones, eval_infos,
              eval_available_actions) = self.eval_envs.step(eval_actions.cpu().numpy())
+            if render:
+                self.eval_envs.render()
+                time.sleep(0.05)
             (eval_obs, eval_share_obs, eval_rewards, eval_dones,
              eval_available_actions) = map(to_tensor,
                                            (eval_obs, eval_share_obs, eval_rewards, eval_dones, eval_available_actions))
