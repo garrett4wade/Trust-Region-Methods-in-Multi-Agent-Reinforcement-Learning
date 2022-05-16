@@ -118,8 +118,8 @@ class FootballEnvironment:
             available_actions,
         )
 
-    def render(self) -> None:
-        self.__env.render()
+    def render(self, mode='human'):
+        return self.__env.render(mode=mode)
 
     def close(self):
         self.__env.close()

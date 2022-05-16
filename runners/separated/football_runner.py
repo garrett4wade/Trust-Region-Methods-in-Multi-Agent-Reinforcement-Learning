@@ -3,8 +3,10 @@ import numpy as np
 from functools import reduce
 import torch
 import wandb
+import uuid
 from runners.separated.base_runner import Runner
 from utils.timing import Timing
+from utils.util import save_frames_as_gif
 
 
 def _t2n(x):
@@ -261,7 +263,6 @@ class FootballRunner(Runner):
         (eval_obs, eval_share_obs, eval_available_actions) = map(to_tensor, self.eval_envs.reset())
         if render:
             self.eval_envs.render()
-            time.sleep(0.05)
 
         eval_rnn_states = torch.zeros(
             (self.n_eval_rollout_threads, self.num_agents, self.recurrent_N, self.hidden_size),
@@ -322,7 +323,6 @@ class FootballRunner(Runner):
              eval_available_actions) = self.eval_envs.step(eval_actions.cpu().numpy())
             if render:
                 self.eval_envs.render()
-                time.sleep(0.05)
             (eval_obs, eval_share_obs, eval_rewards, eval_dones,
              eval_available_actions) = map(to_tensor,
                                            (eval_obs, eval_share_obs, eval_rewards, eval_dones, eval_available_actions))

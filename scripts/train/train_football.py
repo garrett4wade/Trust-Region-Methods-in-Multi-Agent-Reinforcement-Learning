@@ -54,6 +54,17 @@ def make_eval_env(all_args):
                 number_of_right_players_agent_controls=0,
                 rewards="scoring",
                 env_name=all_args.map_name,
+                write_full_episode_dumps=all_args.use_render,
+                #   render=False,
+                  write_video=all_args.use_render,
+                logdir='/mnt/c/Users/fuwth/Documents/icml22_demos/ca_hard/ar',
+                other_config_options={
+                    "video_foramt": "avi",
+                    "render_resolution_x": 960,
+                    "render_resolution_y": 540,
+                    "video_quality_level": 2,
+                    "display_game_stats": False
+                },
             )
             return env
 
@@ -178,7 +189,7 @@ def main(args):
     if all_args.use_wandb:
         run.finish()
     else:
-        if not all_args.use_render:
+        if hasattr(runner, writter):
             runner.writter.export_scalars_to_json(str(runner.log_dir + '/summary.json'))
             runner.writter.close()
 
