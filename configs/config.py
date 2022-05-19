@@ -214,7 +214,7 @@ def get_config():
                         help="Number of torch threads for training")
     parser.add_argument("--n_rollout_threads",
                         type=int,
-                        default=32,
+                        default=180,
                         help="Number of parallel envs for training rollouts")
     parser.add_argument("--n_eval_rollout_threads",
                         type=int,
@@ -227,13 +227,13 @@ def get_config():
     parser.add_argument(
         "--num_env_steps",
         type=int,
-        default=10e6,
+        default=100e6,
         help='Number of environment steps to train (default: 10e6)')
 
     # env parameters
     parser.add_argument("--env_name",
                         type=str,
-                        default='StarCraft2',
+                        default='ned90',
                         help="specify the name of environment")
     parser.add_argument("--use_obs_instead_of_state",
                         action='store_true',
@@ -264,11 +264,11 @@ def get_config():
     parser.add_argument(
         "--hidden_size",
         type=int,
-        default=64,
+        default=256,
         help="Dimension of hidden layers for actor/critic networks")
     parser.add_argument("--layer_N",
                         type=int,
-                        default=1,
+                        default=3,
                         help="Number of layers for actor/critic networks")
     parser.add_argument("--use_ReLU",
                         action='store_false',
@@ -276,8 +276,8 @@ def get_config():
                         help="Whether to use ReLU")
     parser.add_argument(
         "--use_popart",
-        action='store_false',
-        default=True,
+        action='store_true',
+        default=False,
         help="by default True, use running mean and std to normalize rewards.")
     parser.add_argument(
         "--use_valuenorm",

@@ -37,7 +37,8 @@ class Actor(nn.Module):
         obs_shape = get_shape_from_obs_space(obs_space)
         base = CNNBase if len(obs_shape) == 3 else MLPBase
         self.autoregressive = args.autoregressive
-        self.act_dim = action_space.n
+        if self.autoregressive:
+            self.act_dim = action_space.n
         self.base = base(args, obs_shape, act_dim=action_space.n if self.autoregressive else None)
 
         if self._use_naive_recurrent_policy or self._use_recurrent_policy:
